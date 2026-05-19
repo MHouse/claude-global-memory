@@ -1,9 +1,11 @@
 # claude-memory
 
-A small, user-agnostic memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
-Sets up a two-layer Markdown memory store that future Claude Code sessions
-read at session start — so durable knowledge (preferences, tools, recurring
-gotchas, project facts) survives across conversations and across projects.
+**Global, cross-project memory for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — the layer that survives across projects, complementing the built-in `/remember` (which is per-project).**
+
+Sets up a small Markdown memory store at `~/.claude/memory/` that future
+Claude Code sessions read at session start — so durable knowledge
+(preferences, tool gotchas, vault paths, cross-project conventions) is
+available everywhere you work, not just inside one repo.
 
 This repo ships the **scaffold**, not anyone's content. Bootstrap a fresh
 empty system on any machine and let it accrue naturally.
@@ -17,18 +19,37 @@ tool has a subtle gotcha I hit twice", "I prefer commits formatted like
 X"). This repo defines a simple convention for that layer and a five-minute
 bootstrap to set it up.
 
-## The two layers
+## Relationship to built-in `/remember`
 
-1. **Cross-project memory** — `~/.claude/memory/`. Applies to every project
-   on this machine. Index file is `MEMORY.md`. **This repo bootstraps this
-   layer.**
-2. **Per-project auto-memory** — `~/.claude/projects/<slug>/memory/`. The
-   harness creates and manages this dir per project automatically; you
-   don't bootstrap it. Same file format and frontmatter conventions as the
-   cross-project layer.
+This **complements** the built-in memory system; it does not replace it.
+Both run in parallel after bootstrap, covering different scopes:
 
-The slug under `projects/` is derived from the working-directory path; you
-don't pick it.
+|                   | Built-in `/remember`               | `claude-memory` (this repo)              |
+|-------------------|------------------------------------|------------------------------------------|
+| Scope             | Per-project                        | Global (cross-project)                   |
+| Location          | `~/.claude/projects/<slug>/memory/`| `~/.claude/memory/`                      |
+| Setup             | Zero — built into Claude Code      | One-time `./bootstrap.sh`                |
+| Auto-capture      | Yes — model saves opportunistically| Yes — model saves opportunistically      |
+| Loaded at         | Session start (per-project)        | Session start (every session)            |
+| Good for          | "This Postgres table joins weirdly to that one in *this* repo" | "Don't suggest `cp -i` on Git Bash; use `\\cp`" |
+
+Pick the right layer when saving: if the fact is true only inside one
+project, let built-in `/remember` capture it. If it's true on this
+machine everywhere, save it under `~/.claude/memory/`. Both use the same
+file format and frontmatter conventions, so promoting a per-project
+memory to cross-project is a `mv` between dirs.
+
+The `<slug>` in the per-project path is derived from the working-directory
+path; you don't pick it.
+
+**Cost note.** The cross-project layer loads its index (`MEMORY.md`)
+into every session, in every project, by design. At ~10–20 entries this
+is a negligible token cost; at ~100+ it becomes meaningful. The
+`/consolidate-memory` skill (see [Maintenance](#maintenance) below)
+keeps the set bounded; the `MEMORY.md.template` taxonomy documents an
+explicit promotion path — when a memory matures, promote it to a skill
+or plugin and shrink the entry to a short pointer — which keeps the
+actively-loaded set small.
 
 ## File format
 
