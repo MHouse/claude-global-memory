@@ -26,6 +26,72 @@ User-level memories (identity, persistent preferences) sit at the top
 level rather than under a subdirectory — they don't fit `tools/` or
 `domain/`.
 
+## Two axes of classification
+
+Each memory carries two orthogonal classifications. They should
+agree; when they don't, the file is probably in the wrong place.
+
+- **Directory** answers *what subject area* — `tools/`, `domain/`,
+  `general.md`, or top-level.
+- **Frontmatter `type`** answers *what kind of knowledge* —
+  `user`, `feedback`, `project`, or `reference`.
+
+The directory groups memories for browsing and pruning. The
+`type` tells Claude *how to apply* the memory: `user` shapes
+responses to the human, `feedback` corrects Claude's behaviour,
+`project` supplies ongoing-work context, `reference` points at
+external systems and their quirks.
+
+Typical pairings:
+
+| Memory | File | `type` |
+|---|---|---|
+| "gh PR merge gotcha in a worktree" | `tools/gh.md` | `reference` |
+| "Don't suggest `cp -i` on Git Bash" | `tools/git-bash.md` | `feedback` |
+| "Default name + email for commits" | top-level `user_identity.md` | `user` |
+| "Prefer no trailing summaries" | top-level `general.md` (or `feedback_terse_replies.md`) | `user` (declared) or `feedback` (corrected) |
+| "Obsidian vault at `C:\Users\…`" | `tools/obsidian.md` | `reference` |
+
+Smell combos — if you find yourself writing one of these, the
+memory is probably misplaced:
+
+- `tools/X.md` with `type: project` — the fact is about a *specific
+  project's* use of tool X, not a cross-project tool gotcha. Move
+  it to per-project memory at `~/.claude/projects/<slug>/memory/`.
+- `domain/X/…` with `type: user` — user-level preferences aren't
+  domain knowledge. Move to top-level `general.md` or a dedicated
+  user memory file.
+
+### `feedback` vs `user` — provenance, not content
+
+The distinction is *where the rule came from*, not what it says.
+
+- `user` memories are declarative facts about the human:
+  "Default email is X", "Prefers Go to Python".
+- `feedback` memories are lessons from past interactions:
+  "Don't mock the DB in tests — we got burned last quarter",
+  "User wants no trailing summaries — confirmed after I tried
+  that approach".
+
+Same content can be either type depending on whether the human
+stated it directly (`user`) or Claude learned it from a
+correction or validation (`feedback`).
+
+### `project` vs `reference` — durability
+
+- `reference` memories point at external systems whose existence
+  outlives any single project: vault paths, CLI quirks,
+  dashboard URLs.
+- `project` memories capture in-flight work context: the *why*
+  of an ongoing rewrite, an upcoming deadline, who's doing what.
+  They decay quickly.
+
+If you're saving cross-project memory about a single product or
+codebase, it's probably the wrong layer — that belongs in
+`~/.claude/projects/<slug>/memory/`. Cross-project `project`
+memories are rare; they show up when work genuinely spans repos
+(a company-wide migration, a multi-service rewrite).
+
 ## Maintenance
 
 Run `/consolidate-memory` (the `anthropic-skills:consolidate-memory`
