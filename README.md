@@ -43,13 +43,48 @@ The `<slug>` in the per-project path is derived from the working-directory
 path; you don't pick it.
 
 **Cost note.** The cross-project layer loads its index (`MEMORY.md`)
-into every session, in every project, by design. At ~10–20 entries this
-is a negligible token cost; at ~100+ it becomes meaningful. The
+into every session, in every project, by design. The real constraint
+isn't raw token cost — it's *routing quality*: as the index grows,
+the relevance signal weakens and Claude pulls in adjacent but
+unrelated entries before raw size becomes the binding limit. Aim for
+one line per entry in the index and keep the file under ~200 lines
+(roughly 100 entries). Past that, prune or promote — the
 `/consolidate-memory` skill (see [Maintenance](#maintenance) below)
-keeps the set bounded; the `MEMORY.md.template` taxonomy documents an
-explicit promotion path — when a memory matures, promote it to a skill
-or plugin and shrink the entry to a short pointer — which keeps the
-actively-loaded set small.
+surfaces candidates; the `MEMORY.md.template` taxonomy documents an
+explicit promotion path (when a memory matures, promote it to a skill
+or plugin and shrink the entry to a short pointer).
+
+## How this compares to related approaches
+
+Several writers have published lightweight Claude Code memory patterns
+this repo borrows from. A quick map of the landscape:
+
+| | Storage | Load mechanism | Hooks | Frontmatter |
+|---|---|---|---|---|
+| [Pawel Huryn](https://substack.com/@huryn/note/c-216337711) | single `memory.md` | session-start instruction | — | — |
+| [John Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory) | dir + `memory.md` + `tools/` + `domain/` | session-start + `PreToolUse` hooks | yes (Python + shell wrapper, ~5ms / tool call) | — |
+| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | session-start instruction | — | `name` / `description` / `type` |
+| [claude-mem](https://github.com/thedotmack/claude-mem) | SQLite + worker daemon | hooks + MCP queries | yes | n/a |
+
+**vs Huryn's pattern** — same session-start instruction; adds directory
+structure, type frontmatter, and a bootstrap so it's reproducible
+across machines.
+
+**vs Conneely's "Try it yourself" recipe** — same directory structure;
+drops the `PreToolUse` hooks (no Python dependency, no `settings.json`
+mutation, no per-tool-call latency), adds a `type` frontmatter so the
+index can route without scanning every file, and explicitly positions
+this as the cross-project layer alongside the built-in per-project
+memory (which Conneely's recipe doesn't acknowledge).
+
+**vs `claude-mem`** — a different scale of system entirely. Pick
+`claude-mem` if you want auto-capture, semantic search, and a worker
+process running locally. Pick this if you want a Markdown file you can
+`cat` and a bootstrap that doesn't outlive the day you ran it.
+
+The lighter approaches (Huryn, Conneely, this repo) share one thing:
+Claude reads plain Markdown via its existing `Read` / `Edit` / `Write`
+tools — no new tool surface, no daemon, no opaque store.
 
 ## File format
 
