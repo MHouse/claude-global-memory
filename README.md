@@ -1,11 +1,13 @@
-# claude-memory
+# claude-global-memory
 
 **Global, cross-project memory for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — the layer that survives across projects, complementing the built-in `/remember` (which is per-project). Just files plus install hygiene: no daemon, retrieval layer, auto-capture pipeline, or sync.**
 
 Sets up a small Markdown store at `~/.claude/memory/` that every Claude
 Code session reads at startup, so durable cross-project knowledge is
-available everywhere you work, not just inside one repo. Claude Code
-already loads *per-project* memory automatically; this fills the gap for
+available everywhere you work, not just inside one repo. ("Global" here
+means every project on *this machine* — a local store, not a shared or
+cloud-synced one.) Claude Code already loads *per-project* memory
+automatically; this fills the gap for
 facts that aren't tied to a single repo — "here's my vault path", "this
 tool has a gotcha I hit twice", "I format commits like X".
 
@@ -17,7 +19,7 @@ empty system on any machine and let it accrue naturally.
 This **complements** the built-in system; it doesn't replace it. Both run
 in parallel after bootstrap, covering different scopes:
 
-|                   | Built-in `/remember`               | `claude-memory` (this repo)              |
+|                   | Built-in `/remember`               | `claude-global-memory` (this repo)              |
 |-------------------|------------------------------------|------------------------------------------|
 | Scope             | Per-project                        | Global (cross-project)                   |
 | Location          | `~/.claude/projects/<slug>/memory/`| `~/.claude/memory/`                      |
@@ -106,8 +108,8 @@ in full.
 ## Quick start
 
 ```bash
-git clone https://github.com/MHouse/claude-memory.git
-cd claude-memory
+git clone https://github.com/MHouse/claude-global-memory.git
+cd claude-global-memory
 ./bootstrap.sh        # macOS / Linux
 # or
 .\bootstrap.ps1       # Windows

@@ -23,7 +23,7 @@
 
   -WhatIf shows what would change without writing anything.
 
-  Run from a clone of the claude-memory repo:
+  Run from a clone of the claude-global-memory repo:
 
     .\bootstrap.ps1                   # report drift, do not fix
     .\bootstrap.ps1 -Force            # report and fix
@@ -56,10 +56,10 @@ $template    = Join-Path $repoRoot 'MEMORY.md.template'
 $snippet     = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
 
 if (-not (Test-Path $template)) {
-    throw "Template not found at $template -- run this script from a clone of the claude-memory repo."
+    throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."
 }
 if (-not (Test-Path $snippet)) {
-    throw "Snippet not found at $snippet -- run this script from a clone of the claude-memory repo."
+    throw "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo."
 }
 
 # ---- helpers -------------------------------------------------------------
