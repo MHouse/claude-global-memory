@@ -51,7 +51,10 @@ isn't raw token cost — it's *routing quality*: as the index grows,
 the relevance signal weakens and Claude pulls in adjacent but
 unrelated entries before raw size becomes the binding limit. Aim for
 one line per entry in the index and keep the file under ~200 lines
-(roughly 100 entries). Past that, prune or promote — the
+(roughly 100 entries). A few high-value lines may run longer to carry
+an inline imperative (see [File format](#file-format)) — reserve that
+for the critical few, since each extra line spends the same
+routing-quality budget. Past that, prune or promote — the
 `/consolidate-memory` skill (see [Maintenance](#maintenance) below)
 surfaces candidates; the `MEMORY.md.template` taxonomy documents an
 explicit promotion path (when a memory matures, promote it to a skill
@@ -118,7 +121,15 @@ The four types:
   (vault paths, runbooks, tool quirks, CLI argument gotchas).
 
 The top-level `MEMORY.md` is the index — a list of one-line links to the
-individual files, ordered however you find useful.
+individual files, ordered however you find useful. The index loads into
+every session; the entry files themselves load **lazily**, only when one
+looks relevant to the task at hand. That makes the index line the only
+part of an entry guaranteed to be in context at the moment you act — so
+for the handful of gotchas that are both *frequent* and *costly* to get
+wrong, lead the index line with the imperative rule itself rather than a
+topic label, turning the always-loaded pointer into an always-on
+reminder. `MEMORY.md.template` documents this convention (and when *not*
+to reach for it) in full.
 
 ## Quick start
 
