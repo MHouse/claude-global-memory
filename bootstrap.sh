@@ -47,8 +47,8 @@ claude_md="${claude_home}/CLAUDE.md"
 template="${repo_root}/MEMORY.md.template"
 snippet="${repo_root}/snippets/cross-project-memory-claude-md.md"
 
-[ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-memory repo." >&2; exit 1; }
-[ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-memory repo." >&2; exit 1; }
+[ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
+[ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 
 # Normalize: strip CR, strip trailing whitespace per line, strip trailing blank lines.
 normalize() {
