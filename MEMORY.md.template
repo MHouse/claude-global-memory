@@ -92,6 +92,38 @@ codebase, it's probably the wrong layer — that belongs in
 memories are rare; they show up when work genuinely spans repos
 (a company-wide migration, a multi-service rewrite).
 
+## Index-line salience (the lazy-load escape hatch)
+
+The full text of each entry loads **lazily** — only when it looks
+relevant to the task at hand. The index (this file) loads into *every*
+session, so the one-line entry is the only part guaranteed to be in
+context at the moment you act. That gap has a failure mode: a tool
+gotcha becomes relevant at *command-formation time*, but relevance was
+judged at session start against the task framing — so the full entry
+isn't pulled, the command fails, and only then does the memory get
+read and the fix applied. Reactive, not proactive.
+
+For most entries a descriptive pointer is fine — the long tail should
+stay terse. But for the few gotchas that are both **frequent** and
+**costly** (especially ones that fail *silently* or are deterministic
+and tool-input-shaped), make the index line **lead with the imperative
+rule**, not a topic label. The always-loaded line then does double
+duty — pointer *and* minimal always-on reminder — raising salience at
+the one tier that's always in context, with no extra file load and no
+`PreToolUse` hook.
+
+- Topic label (loads late, recalled reactively):
+  `[Git Bash gotchas](tools/git-bash.md) — notes on the cp/rm/mv aliases`
+- Imperative lead (heeded proactively when the command is formed):
+  `[Git Bash — interactive aliases no-op](tools/git-bash.md) — **use \cp/\rm/\mv when overwriting/deleting** — plain cp/rm/mv reports success but does nothing non-interactively`
+
+Reserve this for the handful that clear *both* bars; promoting the
+whole `tools/` set bloats the index and erodes routing quality (see the
+cost note in the README). When a rule is destructive *and* mechanically
+matchable, a `PreToolUse` hook is the heavier alternative — but for most
+gotchas an imperative index line captures the benefit at a fraction of
+the cost.
+
 ## Maintenance
 
 Run `/consolidate-memory` (the `anthropic-skills:consolidate-memory`
