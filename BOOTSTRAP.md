@@ -21,7 +21,8 @@ From your clone of this repo:
 .\bootstrap.ps1
 ```
 
-The script does steps 1–3 below and prints a summary of what changed.
+The script does steps 1–3 below (and seeds the empty hooks registry — see
+the drift table) and prints a summary of what changed.
 It's **idempotent**: re-running is a no-op once the system is in place.
 Nothing on disk is duplicated, nothing already there is overwritten —
 including a hand-customised `~/.claude/CLAUDE.md` whose existing
@@ -49,6 +50,12 @@ from the new canonical and offer to resync.
 |---|---|---|
 | `~/.claude/memory/MEMORY.md` | Everything above `## Entries` | `## Entries` and everything below |
 | `~/.claude/CLAUDE.md` | The `## Cross-project memory` section (its H2 through the next H2 or EOF) | Everything outside that section |
+| `~/.claude/hooks/REGISTRY.md` | Everything above `## Registered hooks` | `## Registered hooks` and the rows below |
+
+`REGISTRY.md` is an empty hooks ledger. Bootstrap seeds it because it's plain
+Markdown — it is **not** a hook and does **not** touch `settings.json`. The
+scaffold installs no hooks; adding one is a documented, opt-in recipe in
+[`HOOKS.md`](HOOKS.md).
 
 Each managed region carries an HTML comment marker so the ownership
 boundary is visible in the file itself. Edit *outside* the managed

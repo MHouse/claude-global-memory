@@ -122,7 +122,8 @@ whole `tools/` set bloats the index and erodes routing quality (see the
 cost note in the README). When a rule is destructive *and* mechanically
 matchable, a `PreToolUse` hook is the heavier alternative — but for most
 gotchas an imperative index line captures the benefit at a fraction of
-the cost.
+the cost. For *when* a hook is justified over an index line, and how to
+add and register one, see `HOOKS.md` (the scaffold installs none).
 
 ## Maintenance
 

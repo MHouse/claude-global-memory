@@ -55,16 +55,19 @@ borrows from them. Where it fits:
 |---|---|---|---|---|
 | [Pawel Huryn](https://substack.com/@huryn/note/c-216337711) | single `memory.md` | session-start instruction | — | — |
 | [John Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory) | dir + `memory.md` + `tools/` + `domain/` | session-start + `PreToolUse` hooks | yes (Python + shell wrapper, ~5ms / tool call) | — |
-| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | session-start instruction | — | `name` / `description` / `type` |
+| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | session-start instruction | none installed (opt-in; see [`HOOKS.md`](HOOKS.md)) | `name` / `description` / `type` |
 | [claude-mem](https://github.com/thedotmack/claude-mem) | SQLite + worker daemon | hooks + MCP queries | yes | n/a |
 
 - **vs [Huryn](https://substack.com/@huryn/note/c-216337711)** — same
   session-start instruction, plus directory structure, `type` frontmatter,
   and a reproducible bootstrap.
 - **vs [Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory)**
-  — same directory structure, but drops the `PreToolUse` hooks (no Python,
-  no `settings.json` mutation, no per-call latency) and adds `type`
-  frontmatter so the index routes without scanning every file.
+  — same directory structure. Conneely's hook is a general always-on loader
+  that re-injects memory every session; this repo installs no hooks by default
+  (bootstrap never mutates `settings.json`) and instead treats a hook as a
+  documented, user-added exception — the admission policy and registry pattern
+  in [`HOOKS.md`](HOOKS.md). It also adds `type` frontmatter so the index routes
+  without scanning every file.
 - **vs [claude-mem](https://github.com/thedotmack/claude-mem)** — a
   different scale entirely: pick it for auto-capture, semantic search, and
   a local worker; pick this for plain Markdown you can `cat` and audit,
@@ -143,6 +146,10 @@ few months of accumulation, whichever comes first.
   existing `Read` / `Edit` / `Write` tools — no new tool surface, no
   background process, no opaque store. Want auto-capture or retrieval
   embeddings? Pick a different tool.
+- **Install hooks or edit `settings.json`.** Bootstrap creates only Markdown
+  (the memory store plus an empty hooks *registry*). Hooks are a documented,
+  opt-in exception you add by hand following [`HOOKS.md`](HOOKS.md); the
+  scaffold never writes `settings.json` for you.
 - **Ship anyone's actual memories.** Memories are personal and
   machine-local; this repo only carries the scaffold.
 - **Sync memories across machines.** Each install accrues its own entries.
