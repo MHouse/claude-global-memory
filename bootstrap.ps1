@@ -14,6 +14,10 @@
     4. Appends the cross-project memory section to ~/.claude/CLAUDE.md if
        absent. If present, compares the section body against the snippet
        and reports drift.
+    5. Seeds ~/.claude/hooks/REGISTRY.md (an empty hooks ledger) from
+       REGISTRY.md.template if absent; otherwise drift-checks its preamble
+       (above '## Registered hooks'). This is plain Markdown -- it is NOT a
+       hook and never mutates settings.json. The scaffold installs no hooks.
 
   Drift detection means the file's managed region differs from the
   canonical content shipped in this repo. By default, drift is reported
@@ -54,12 +58,18 @@ $memoryIndex = Join-Path $memoryDir 'MEMORY.md'
 $claudeMd    = Join-Path $claudeHome 'CLAUDE.md'
 $template    = Join-Path $repoRoot 'MEMORY.md.template'
 $snippet     = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
+$hooksDir         = Join-Path $claudeHome 'hooks'
+$registry         = Join-Path $hooksDir 'REGISTRY.md'
+$registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
 
 if (-not (Test-Path $template)) {
     throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."
 }
 if (-not (Test-Path $snippet)) {
     throw "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo."
+}
+if (-not (Test-Path $registryTemplate)) {
+    throw "Registry template not found at $registryTemplate -- run this script from a clone of the claude-global-memory repo."
 }
 
 # ---- helpers -------------------------------------------------------------
@@ -108,21 +118,23 @@ function Get-ClaudeMdSection($lines) {
     }
 }
 
-function Get-MemoryPreamble($lines) {
-    # Returns @{EntriesIdx; Preamble (string); PreambleLines} or $null.
-    $entriesIdx = Find-LineIndex $lines '^## Entries\s*$'
-    if ($entriesIdx -lt 0) { return $null }
-    if ($entriesIdx -eq 0) {
+function Get-PreambleRegion($lines, $markerPattern) {
+    # Returns @{MarkerIdx; Preamble (string); PreambleLines} or $null.
+    # The preamble is everything above the first line matching $markerPattern;
+    # the marker line and everything below is the per-machine tail.
+    $markerIdx = Find-LineIndex $lines $markerPattern
+    if ($markerIdx -lt 0) { return $null }
+    if ($markerIdx -eq 0) {
         $preambleLines = @()
     } else {
-        $preambleLines = $lines[0..($entriesIdx - 1)]
+        $preambleLines = $lines[0..($markerIdx - 1)]
     }
     # Trim trailing blank lines from the preamble for stable equality.
     while ($preambleLines.Count -gt 0 -and $preambleLines[-1] -eq '') {
         $preambleLines = $preambleLines[0..($preambleLines.Count - 2)]
     }
     return @{
-        EntriesIdx    = $entriesIdx
+        MarkerIdx     = $markerIdx
         PreambleLines = $preambleLines
         Preamble      = ($preambleLines -join "`n")
     }
@@ -176,7 +188,7 @@ if (-not (Test-Path $memoryDir)) {
 
 # 2. MEMORY.md
 $templateLines   = Read-NormalizedLines $template
-$templatePreamble = Get-MemoryPreamble $templateLines
+$templatePreamble = Get-PreambleRegion $templateLines '^## Entries\s*$'
 if ($null -eq $templatePreamble) {
     throw "Template at $template is missing the '## Entries' marker; cannot proceed."
 }
@@ -188,7 +200,7 @@ if (-not (Test-Path $memoryIndex)) {
     $summary += "  created   $memoryIndex (from template)"
 } else {
     $liveLines    = Read-NormalizedLines $memoryIndex
-    $livePreamble = Get-MemoryPreamble $liveLines
+    $livePreamble = Get-PreambleRegion $liveLines '^## Entries\s*$'
 
     if ($null -eq $livePreamble) {
         $summary += "  WARN      $memoryIndex (missing '## Entries' marker; refusing to touch)"
@@ -196,7 +208,7 @@ if (-not (Test-Path $memoryIndex)) {
         $summary += "  exists    $memoryIndex (preamble matches template)"
     } elseif ($Force) {
         if ($PSCmdlet.ShouldProcess($memoryIndex, 'replace MEMORY.md preamble with canonical')) {
-            $tailLines = $liveLines[$livePreamble.EntriesIdx..($liveLines.Count - 1)]
+            $tailLines = $liveLines[$livePreamble.MarkerIdx..($liveLines.Count - 1)]
             $newLines = @($templatePreamble.PreambleLines) + @('') + @($tailLines)
             Write-File $memoryIndex $newLines
         }
@@ -259,6 +271,50 @@ if (-not (Test-Path $claudeMd)) {
     } else {
         $summary += "  DRIFT     $claudeMd (section differs from snippet; re-run with -Force to sync)"
         Show-Diff 'CLAUDE.md cross-project section' $liveSection.Section $canonSection
+        $driftReported = $true
+    }
+}
+
+# 5. Hooks registry. Markdown ledger ONLY -- this is never a hook and never
+#    mutates settings.json; the scaffold installs no hooks (see HOOKS.md).
+if (-not (Test-Path $hooksDir)) {
+    if ($PSCmdlet.ShouldProcess($hooksDir, 'create directory')) {
+        New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
+    }
+    $summary += "  created   $hooksDir"
+} else {
+    $summary += "  exists    $hooksDir"
+}
+
+$registryTemplateLines    = Read-NormalizedLines $registryTemplate
+$registryTemplatePreamble = Get-PreambleRegion $registryTemplateLines '^## Registered hooks\s*$'
+if ($null -eq $registryTemplatePreamble) {
+    throw "Registry template at $registryTemplate is missing the '## Registered hooks' marker; cannot proceed."
+}
+
+if (-not (Test-Path $registry)) {
+    if ($PSCmdlet.ShouldProcess($registry, 'seed REGISTRY.md from template')) {
+        Copy-Item -Path $registryTemplate -Destination $registry
+    }
+    $summary += "  created   $registry (from template)"
+} else {
+    $liveRegLines    = Read-NormalizedLines $registry
+    $liveRegPreamble = Get-PreambleRegion $liveRegLines '^## Registered hooks\s*$'
+
+    if ($null -eq $liveRegPreamble) {
+        $summary += "  WARN      $registry (missing '## Registered hooks' marker; refusing to touch)"
+    } elseif ($liveRegPreamble.Preamble -eq $registryTemplatePreamble.Preamble) {
+        $summary += "  exists    $registry (preamble matches template)"
+    } elseif ($Force) {
+        if ($PSCmdlet.ShouldProcess($registry, 'replace REGISTRY.md preamble with canonical')) {
+            $tailLines = $liveRegLines[$liveRegPreamble.MarkerIdx..($liveRegLines.Count - 1)]
+            $newLines = @($registryTemplatePreamble.PreambleLines) + @('') + @($tailLines)
+            Write-File $registry $newLines
+        }
+        $summary += "  synced    $registry (preamble replaced)"
+    } else {
+        $summary += "  DRIFT     $registry (preamble differs from template; re-run with -Force to sync)"
+        Show-Diff 'REGISTRY.md preamble' $liveRegPreamble.Preamble $registryTemplatePreamble.Preamble
         $driftReported = $true
     }
 }

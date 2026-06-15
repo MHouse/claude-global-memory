@@ -10,6 +10,10 @@
 #   3. Creates ~/.claude/CLAUDE.md with a minimal header if absent.
 #   4. Appends the cross-project memory section if absent. If present,
 #      compares the section body against the snippet and reports drift.
+#   5. Seeds ~/.claude/hooks/REGISTRY.md (an empty hooks ledger) from
+#      REGISTRY.md.template if absent; else drift-checks its preamble. This
+#      is plain Markdown -- NOT a hook, never mutates settings.json. The
+#      scaffold installs no hooks.
 #
 # Drift = file's managed region differs from canonical content in this
 # repo. Default: report with a diff, do not modify. Re-run with --force
@@ -46,9 +50,13 @@ memory_index="${memory_dir}/MEMORY.md"
 claude_md="${claude_home}/CLAUDE.md"
 template="${repo_root}/MEMORY.md.template"
 snippet="${repo_root}/snippets/cross-project-memory-claude-md.md"
+hooks_dir="${claude_home}/hooks"
+registry="${hooks_dir}/REGISTRY.md"
+registry_template="${repo_root}/REGISTRY.md.template"
 
 [ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
+[ -f "$registry_template" ] || { echo "Registry template not found at $registry_template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 
 # Normalize: strip CR, strip trailing whitespace per line, strip trailing blank lines.
 normalize() {
@@ -68,20 +76,23 @@ extract_claudemd_section() {
     ' | awk 'BEGIN{n=0} {a[n++]=$0} END{ while (n>0 && a[n-1]=="") n--; for (i=0;i<n;i++) print a[i] }'
 }
 
-# Extract MEMORY.md preamble: from start through line immediately before
-# '## Entries'. Prints nothing if '## Entries' missing.
-extract_memorymd_preamble() {
+# Extract a preamble: from start through the line immediately before the
+# first line matching $2 (an ERE marker). Prints nothing if marker missing.
+# Used for both MEMORY.md ('## Entries') and REGISTRY.md ('## Registered hooks').
+extract_preamble() {
     local file=$1
-    normalize "$file" | awk '
-        /^## Entries[[:space:]]*$/ { found=1; exit }
+    local marker=$2
+    normalize "$file" | awk -v marker="$marker" '
+        $0 ~ marker { found=1; exit }
         { print }
         END { if (!found) exit 2 }
     '
 }
 
-has_entries_marker() {
+has_marker() {
     local file=$1
-    grep -qE '^## Entries[[:space:]]*$' "$file"
+    local marker=$2
+    grep -qE "$marker" "$file"
 }
 
 has_section_marker() {
@@ -129,17 +140,18 @@ replace_claudemd_section() {
     mv "$tmp" "$file"
 }
 
-# Replace the preamble (everything up to '## Entries') in $file with
-# the preamble extracted from $template.
-replace_memorymd_preamble() {
+# Replace the preamble (everything up to the marker line $3) in $file with
+# the preamble extracted from $template. Used for MEMORY.md and REGISTRY.md.
+replace_preamble() {
     local file=$1
     local template=$2
+    local marker=$3
     local tmp
     tmp="$(mktemp)"
-    awk -v tpl_file="$template" '
+    awk -v tpl_file="$template" -v marker="$marker" '
         BEGIN {
             while ((getline line < tpl_file) > 0) {
-                if (line ~ /^## Entries[[:space:]]*$/) { break }
+                if (line ~ marker) { break }
                 pre = pre ? pre "\n" line : line
             }
             close(tpl_file)
@@ -151,7 +163,7 @@ replace_memorymd_preamble() {
             print ""
             shown = 1
         }
-        /^## Entries[[:space:]]*$/ { copying = 1 }
+        $0 ~ marker { copying = 1 }
         copying { print }
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
@@ -187,16 +199,16 @@ if [ ! -f "$memory_index" ]; then
     fi
     note "  created   $memory_index (from template)"
 else
-    if ! has_entries_marker "$memory_index"; then
+    if ! has_marker "$memory_index" '^## Entries[[:space:]]*$'; then
         note "  WARN      $memory_index (missing '## Entries' marker; refusing to touch)"
     else
-        live_preamble="$(extract_memorymd_preamble "$memory_index")"
-        tpl_preamble="$(extract_memorymd_preamble "$template")"
+        live_preamble="$(extract_preamble "$memory_index" '^## Entries[[:space:]]*$')"
+        tpl_preamble="$(extract_preamble "$template" '^## Entries[[:space:]]*$')"
         if [[ "$live_preamble" == "$tpl_preamble" ]]; then
             note "  exists    $memory_index (preamble matches template)"
         elif [[ "$force" -eq 1 ]]; then
             if [[ "$dry_run" -eq 0 ]]; then
-                replace_memorymd_preamble "$memory_index" "$template"
+                replace_preamble "$memory_index" "$template" '^## Entries[[:space:]]*$'
             fi
             note "  synced    $memory_index (preamble replaced)"
         else
@@ -249,6 +261,43 @@ else
         else
             note "  DRIFT     $claude_md (section differs from snippet; re-run with --force to sync)"
             show_diff "CLAUDE.md cross-project section" "$live_section" "$canonical_section"
+            drift_reported=1
+        fi
+    fi
+fi
+
+# 5. Hooks registry. Markdown ledger ONLY -- this is never a hook and never
+#    mutates settings.json; the scaffold installs no hooks (see HOOKS.md).
+if [ ! -d "$hooks_dir" ]; then
+    if [[ "$dry_run" -eq 0 ]]; then
+        mkdir -p "$hooks_dir"
+    fi
+    note "  created   $hooks_dir"
+else
+    note "  exists    $hooks_dir"
+fi
+
+if [ ! -f "$registry" ]; then
+    if [[ "$dry_run" -eq 0 ]]; then
+        cp "$registry_template" "$registry"
+    fi
+    note "  created   $registry (from template)"
+else
+    if ! has_marker "$registry" '^## Registered hooks[[:space:]]*$'; then
+        note "  WARN      $registry (missing '## Registered hooks' marker; refusing to touch)"
+    else
+        live_reg_preamble="$(extract_preamble "$registry" '^## Registered hooks[[:space:]]*$')"
+        tpl_reg_preamble="$(extract_preamble "$registry_template" '^## Registered hooks[[:space:]]*$')"
+        if [[ "$live_reg_preamble" == "$tpl_reg_preamble" ]]; then
+            note "  exists    $registry (preamble matches template)"
+        elif [[ "$force" -eq 1 ]]; then
+            if [[ "$dry_run" -eq 0 ]]; then
+                replace_preamble "$registry" "$registry_template" '^## Registered hooks[[:space:]]*$'
+            fi
+            note "  synced    $registry (preamble replaced)"
+        else
+            note "  DRIFT     $registry (preamble differs from template; re-run with --force to sync)"
+            show_diff "REGISTRY.md preamble" "$live_reg_preamble" "$tpl_reg_preamble"
             drift_reported=1
         fi
     fi
