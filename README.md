@@ -108,6 +108,56 @@ rule itself, not a topic label — turning the always-loaded pointer into
 an always-on reminder. `MEMORY.md.template` covers this (and when not to)
 in full.
 
+## Where memories go (taxonomy)
+
+Two orthogonal classifications. They should agree; when they don't, the file
+is probably in the wrong place. (`MEMORY.md.template` keeps the type
+definitions and the boundary rule always in the agent's context; this section
+is the fuller reference — the pairings table, smell combos, and the
+provenance/durability nuances.)
+
+- **Directory** answers *what subject area*:
+  - `tools/{name}.md` — external systems, CLIs, vaults, services (Obsidian,
+    gcloud, gh).
+  - `domain/{topic}/` — knowledge about a product, codebase, or business area
+    that spans sessions. A staging area: when it matures, promote it to a skill
+    or plugin and shrink the memory to a short pointer.
+  - `general.md` — cross-cutting writing/workflow preferences.
+  - top level — identity and persistent preferences (they don't fit `tools/`
+    or `domain/`).
+- **Frontmatter `type`** answers *what kind of knowledge* (`user` / `feedback` /
+  `project` / `reference`, defined above) and tells Claude *how to apply* it.
+
+Typical pairings:
+
+| Memory | File | `type` |
+|---|---|---|
+| "gh PR merge gotcha in a worktree" | `tools/gh.md` | `reference` |
+| "Don't suggest `cp -i` on Git Bash" | `tools/git-bash.md` | `feedback` |
+| "Default name + email for commits" | top-level `user_identity.md` | `user` |
+| "Prefer no trailing summaries" | top-level `general.md` | `user` (declared) or `feedback` (corrected) |
+| "Obsidian vault at `C:\Users\…`" | `tools/obsidian.md` | `reference` |
+
+**Smell combos** — if you write one of these, the memory is probably misplaced:
+
+- `tools/X.md` with `type: project` — the fact is about a *specific project's*
+  use of tool X, not a cross-project gotcha. Move it to per-project memory
+  (`~/.claude/projects/<slug>/memory/`).
+- `domain/X/…` with `type: user` — user preferences aren't domain knowledge.
+  Move to `general.md` or a dedicated user memory file.
+
+**`feedback` vs `user` — provenance, not content.** `user` is a declarative fact
+about the human ("default email is X"); `feedback` is a lesson from a past
+interaction ("don't mock the DB in tests — we got burned"). Same content, typed
+by whether the human stated it (`user`) or Claude learned it from a correction
+(`feedback`).
+
+**`project` vs `reference` — durability.** `reference` points at external systems
+that outlive any project (vault paths, CLI quirks, dashboards); `project`
+captures in-flight work context (the *why* of a rewrite, a deadline) and decays
+quickly. Cross-project `project` memories are rare — usually that belongs in
+per-project memory.
+
 ## Quick start
 
 ```bash

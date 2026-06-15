@@ -7,123 +7,58 @@ Memories that apply across every project on this machine. Project-specific
 memories live in `~/.claude/projects/{slug}/memory/` and follow the same
 format.
 
-## Taxonomy (where new memories go)
+## Where memories go
 
-Currently a flat top level plus a `tools/` subdirectory. As more entries
-accumulate, organise by purpose:
+Each memory is a short Markdown file with `name` / `description` / `type`
+frontmatter, filed under a directory by subject:
 
-- `tools/{name}.md` — external systems, CLIs, vaults, services (Obsidian,
-  gcloud, gh, etc.).
-- `domain/{topic}/{topic}.md` — knowledge about a product, codebase, or
-  business area that spans multiple sessions. Treat as a staging area:
-  when content here matures, promote it to a skill or plugin and shrink
-  the memory file to a short pointer.
-- `general.md` — cross-cutting writing/workflow preferences. Create when
-  there's actually something general to record; don't ceremony-create
-  empty.
+- `tools/{name}.md` — external systems, CLIs, vaults, services.
+- `domain/{topic}/` — knowledge about a product, codebase, or area that
+  spans sessions (a staging area — promote to a skill/plugin as it matures).
+- `general.md` — cross-cutting workflow/writing preferences.
+- top level — identity and persistent personal preferences.
 
-User-level memories (identity, persistent preferences) sit at the top
-level rather than under a subdirectory — they don't fit `tools/` or
-`domain/`.
+`type` tells Claude *how to apply* the memory:
 
-## Two axes of classification
+- **user** — explicitly stated, stable facts/preferences about the human.
+- **feedback** — lessons from corrections or observed dissatisfaction; apply
+  as a behavioural adjustment.
+- **project** — current or repo-specific working context, decisions, in-flight
+  state.
+- **reference** — durable pointers to external systems, docs, services,
+  accounts.
 
-Each memory carries two orthogonal classifications. They should
-agree; when they don't, the file is probably in the wrong place.
-
-- **Directory** answers *what subject area* — `tools/`, `domain/`,
-  `general.md`, or top-level.
-- **Frontmatter `type`** answers *what kind of knowledge* —
-  `user`, `feedback`, `project`, or `reference`.
-
-The directory groups memories for browsing and pruning. The
-`type` tells Claude *how to apply* the memory: `user` shapes
-responses to the human, `feedback` corrects Claude's behaviour,
-`project` supplies ongoing-work context, `reference` points at
-external systems and their quirks.
-
-Typical pairings:
-
-| Memory | File | `type` |
-|---|---|---|
-| "gh PR merge gotcha in a worktree" | `tools/gh.md` | `reference` |
-| "Don't suggest `cp -i` on Git Bash" | `tools/git-bash.md` | `feedback` |
-| "Default name + email for commits" | top-level `user_identity.md` | `user` |
-| "Prefer no trailing summaries" | top-level `general.md` (or `feedback_terse_replies.md`) | `user` (declared) or `feedback` (corrected) |
-| "Obsidian vault at `C:\Users\…`" | `tools/obsidian.md` | `reference` |
-
-Smell combos — if you find yourself writing one of these, the
-memory is probably misplaced:
-
-- `tools/X.md` with `type: project` — the fact is about a *specific
-  project's* use of tool X, not a cross-project tool gotcha. Move
-  it to per-project memory at `~/.claude/projects/<slug>/memory/`.
-- `domain/X/…` with `type: user` — user-level preferences aren't
-  domain knowledge. Move to top-level `general.md` or a dedicated
-  user memory file.
-
-### `feedback` vs `user` — provenance, not content
-
-The distinction is *where the rule came from*, not what it says.
-
-- `user` memories are declarative facts about the human:
-  "Default email is X", "Prefers Go to Python".
-- `feedback` memories are lessons from past interactions:
-  "Don't mock the DB in tests — we got burned last quarter",
-  "User wants no trailing summaries — confirmed after I tried
-  that approach".
-
-Same content can be either type depending on whether the human
-stated it directly (`user`) or Claude learned it from a
-correction or validation (`feedback`).
-
-### `project` vs `reference` — durability
-
-- `reference` memories point at external systems whose existence
-  outlives any single project: vault paths, CLI quirks,
-  dashboard URLs.
-- `project` memories capture in-flight work context: the *why*
-  of an ongoing rewrite, an upcoming deadline, who's doing what.
-  They decay quickly.
-
-If you're saving cross-project memory about a single product or
-codebase, it's probably the wrong layer — that belongs in
-`~/.claude/projects/<slug>/memory/`. Cross-project `project`
-memories are rare; they show up when work genuinely spans repos
-(a company-wide migration, a multi-service rewrite).
+**Directory and `type` should agree — move a memory, don't mislabel it.** If it
+came from a correction, prefer `feedback` over `user`; if it's a durable
+external pointer rather than current project state, prefer `reference` over
+`project`. A global-memory file that's really about one project belongs in
+per-project memory (`~/.claude/projects/<slug>/memory/`) — promote or demote it.
+The worked pairings table and examples live in this repo's `README.md`.
 
 ## Index-line salience (the lazy-load escape hatch)
 
-The full text of each entry loads **lazily** — only when it looks
-relevant to the task at hand. The index (this file) loads into *every*
-session, so the one-line entry is the only part guaranteed to be in
-context at the moment you act. That gap has a failure mode: a tool
-gotcha becomes relevant at *command-formation time*, but relevance was
-judged at session start against the task framing — so the full entry
-isn't pulled, the command fails, and only then does the memory get
-read and the fix applied. Reactive, not proactive.
+Entry bodies load **lazily** — only when one looks relevant to the task.
+The index (this file) loads into *every* session, so the one-line entry is
+the only part guaranteed to be in context when you act. Failure mode: a
+gotcha that matters at *command-formation time* wasn't judged relevant at
+session start, so the body isn't pulled and the command fails first —
+reactive, not proactive.
 
-For most entries a descriptive pointer is fine — the long tail should
-stay terse. But for the few gotchas that are both **frequent** and
-**costly** (especially ones that fail *silently* or are deterministic
-and tool-input-shaped), make the index line **lead with the imperative
-rule**, not a topic label. The always-loaded line then does double
-duty — pointer *and* minimal always-on reminder — raising salience at
-the one tier that's always in context, with no extra file load and no
-`PreToolUse` hook.
+For most entries a descriptive pointer is fine; keep the long tail terse.
+But for the few gotchas that are both **frequent** and **costly**
+(especially ones that fail *silently* or are deterministic and
+tool-input-shaped), make the index line **lead with the imperative rule**,
+not a topic label — the always-loaded line then doubles as an always-on
+reminder, at no extra load. For example:
+`[Git Bash — interactive aliases no-op](tools/git-bash.md) — **use
+\cp/\rm/\mv when overwriting/deleting** — plain cp/rm/mv reports success
+but does nothing non-interactively`.
 
-- Topic label (loads late, recalled reactively):
-  `[Git Bash gotchas](tools/git-bash.md) — notes on the cp/rm/mv aliases`
-- Imperative lead (heeded proactively when the command is formed):
-  `[Git Bash — interactive aliases no-op](tools/git-bash.md) — **use \cp/\rm/\mv when overwriting/deleting** — plain cp/rm/mv reports success but does nothing non-interactively`
-
-Reserve this for the handful that clear *both* bars; promoting the
-whole `tools/` set bloats the index and erodes routing quality (see the
-cost note in the README). When a rule is destructive *and* mechanically
-matchable, a `PreToolUse` hook is the heavier alternative — but for most
-gotchas an imperative index line captures the benefit at a fraction of
-the cost. For *when* a hook is justified over an index line, and how to
-add and register one, see `HOOKS.md` (the scaffold installs none).
+Reserve this for the handful that clear *both* bars; over-promoting bloats
+the index and erodes routing quality (see the cost note in the README).
+When a rule is destructive *and* mechanically matchable, a `PreToolUse`
+hook is the heavier alternative — for *when* a hook is justified over an
+index line and how to add one, see `HOOKS.md` (the scaffold installs none).
 
 ## Maintenance
 
