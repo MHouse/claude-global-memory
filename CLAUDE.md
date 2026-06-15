@@ -8,7 +8,7 @@ this project's auto-memory index
 ## What this repo is
 
 The **public scaffold + bootstrap** for a cross-project Claude Code
-memory layer at `~/.claude/memory/`. It ships the *structure* (template,
+memory layer at `~/.claude/memory/`. It ships the *structure* (templates,
 bootstrap scripts, docs) — **never anyone's actual memories**.
 
 - This repo (`MHouse/claude-global-memory`) is the **scaffold**. It is
@@ -33,13 +33,21 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
     `## Entries`; never touches `## Entries` and below.
   - `~/.claude/CLAUDE.md`: bootstrap owns only the `## Cross-project
     memory` H2 section; never touches anything outside it.
+  - `~/.claude/hooks/REGISTRY.md`: bootstrap owns everything **above**
+    `## Registered hooks`; never touches the rows below.
   - Each managed region carries an HTML-comment marker as the ownership
     boundary. The canonical section content is
     `snippets/cross-project-memory-claude-md.md`, appended verbatim — if
     you change the snippet, the drift-detection paths in both scripts
     must still match it.
-- **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, the
-  template, and the bootstrap scripts describe one system. A behavior
+- **Never install hooks or write `settings.json`.** The scaffold installs no
+  hooks; bootstrap only ever creates Markdown (the memory store + an empty
+  hooks registry). Hooks are a documented, opt-in exception users add by hand,
+  governed by the admission policy in `HOOKS.md` and logged in
+  `~/.claude/hooks/REGISTRY.md`. Don't add hook-installing or
+  `settings.json`-mutating behaviour to bootstrap.
+- **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md, the
+  templates, and the bootstrap scripts describe one system. A behavior
   change in the scripts usually needs a doc change too.
 
 ## Conventions
@@ -55,8 +63,8 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
 ## Workflow
 
 - Feature branch + squash-merge PR via `gh`. **Never push to `main`.**
-- PR title = eventual squash subject; body uses `## Summary` /
-  `## Test plan`.
+- PR title = eventual squash subject; body uses `## What` / `## Why` /
+  `## Verification`.
 - "Testing" here is mostly running the bootstrap scripts against a
   throwaway `HOME`/`$env:USERPROFILE` and confirming idempotency + drift
   detection, since there's no app to run.
