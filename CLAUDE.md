@@ -40,12 +40,21 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
     `snippets/cross-project-memory-claude-md.md`, appended verbatim — if
     you change the snippet, the drift-detection paths in both scripts
     must still match it.
-- **Never install hooks or write `settings.json`.** The scaffold installs no
-  hooks; bootstrap only ever creates Markdown (the memory store + an empty
-  hooks registry). Hooks are a documented, opt-in exception users add by hand,
-  governed by the admission policy in `HOOKS.md` and logged in
-  `~/.claude/hooks/REGISTRY.md`. Don't add hook-installing or
-  `settings.json`-mutating behaviour to bootstrap.
+  - `~/.claude/skills/closeout/SKILL.md`: a **whole-file** managed surface
+    (not a region-in-a-file), installed only with `--install-closeout` /
+    `-InstallCloseout` (default off). Bootstrap owns the entire file; a
+    `.delivered` stamp distinguishes an unmodified-but-stale copy from a
+    user-edited one, re-sync is on demand (`--force` or re-install, never
+    automatic), and bootstrap refuses to write through a symlink/junction at
+    that path. `--uninstall-closeout` removes it.
+- **Never install hooks or write `settings.json`.** This prohibition is
+  absolute — the scaffold installs no hooks and never touches `settings.json`.
+  Hooks are a documented, opt-in exception users add by hand, governed by the
+  admission policy in `HOOKS.md` and logged in `~/.claude/hooks/REGISTRY.md`.
+  Bootstrap writes only Markdown: the memory store, the empty hooks registry,
+  and — only with the explicit opt-in `--install-closeout` flag — a copy of the
+  bundled `closeout` skill file. It never installs a hook or mutates
+  `settings.json` to do any of that.
 - **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md, the
   templates, and the bootstrap scripts describe one system. A behavior
   change in the scripts usually needs a doc change too.
