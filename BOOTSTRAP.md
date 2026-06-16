@@ -38,6 +38,8 @@ After running, optionally seed `user_identity.md` (step 4) and verify
 | (none) | (none) | Detect drift and print a diff, but write nothing. Default. |
 | `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. |
 | `--dry-run` | `-WhatIf` | Report intended actions, write nothing. Combines with `--force`. |
+| `--install-closeout` | `-InstallCloseout` | Install the bundled `closeout` maintenance skill to `~/.claude/skills/closeout/` (default: not installed). Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
+| `--uninstall-closeout` | `-UninstallCloseout` | Remove the installed `closeout` skill. |
 
 ### What "drift" means
 
@@ -51,6 +53,7 @@ from the new canonical and offer to resync.
 | `~/.claude/memory/MEMORY.md` | Everything above `## Entries` | `## Entries` and everything below |
 | `~/.claude/CLAUDE.md` | The `## Cross-project memory` section (its H2 through the next H2 or EOF) | Everything outside that section |
 | `~/.claude/hooks/REGISTRY.md` | Everything above `## Registered hooks` | `## Registered hooks` and the rows below |
+| `~/.claude/skills/closeout/SKILL.md` | The **whole file** (opt-in; present only after `--install-closeout`) | Nothing inside it — but bootstrap won't write *through* a symlink/junction at that path, and won't overwrite a copy you edited without `--force` |
 
 `REGISTRY.md` is an empty hooks ledger. Bootstrap seeds it because it's plain
 Markdown — it is **not** a hook and does **not** touch `settings.json`. The
@@ -59,7 +62,35 @@ scaffold installs no hooks; adding one is a documented, opt-in recipe in
 
 Each managed region carries an HTML comment marker so the ownership
 boundary is visible in the file itself. Edit *outside* the managed
-regions freely; treat *inside* them as upstream-owned.
+regions freely; treat *inside* them as upstream-owned. (The `closeout`
+skill is the exception: a whole-file surface with no in-file marker — its
+`.delivered` sidecar hash plays that role, letting bootstrap tell an
+unmodified-but-stale copy from one you edited.)
+
+### Verifying the closeout skill (optional; run on BOTH scripts)
+
+`closeout` is opt-in and is a *whole-file* managed surface, so verify it
+separately against a throwaway `HOME` / `$env:USERPROFILE`. Run the same recipe
+with `bootstrap.sh` **and** `bootstrap.ps1` — they must behave identically.
+
+1. **Bare run, not installed** → summary shows `skip … closeout skill (not installed)`.
+2. **`--install-closeout`** → `created … (closeout installed)`; `SKILL.md` and a
+   `.delivered` stamp now exist under `~/.claude/skills/closeout/`.
+3. **Bare run again** → `exists … (in sync)`, nothing written.
+4. **Edit the installed `SKILL.md`, bare run** → `DRIFT … (differs and looks
+   edited)`; nothing written.
+5. **`--force`** → `synced … (overwrote modified copy)`.
+6. **Stale-but-unmodified copy** (older content whose normalized hash matches the
+   stamp), bare run → `DRIFT … (newer version available; your copy is
+   unmodified)`; `--install-closeout` or `--force` → `synced … (updated to
+   current version)`.
+7. **`--uninstall-closeout`** → `removed …`; the file is gone.
+8. **Symlink/junction at `~/.claude/skills/closeout`**, `--install-closeout` →
+   `WARN … is a symlink/junction; not managing it` (bootstrap never writes
+   through it).
+
+A bare run on a `HOME` where closeout was never installed must match today's
+behavior exactly — installing closeout is strictly opt-in.
 
 ### PowerShell execution policy
 

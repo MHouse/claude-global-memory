@@ -14,6 +14,14 @@ tool has a gotcha I hit twice", "I format commits like X".
 This repo ships the **scaffold**, not anyone's content. Bootstrap a fresh
 empty system on any machine and let it accrue naturally.
 
+A memory store needs upkeep, not just setup — entries and docs drift out of
+sync across sessions, and a store that quietly rots is worse than none. So the
+package also ships an **optional** session-end maintenance skill,
+[`closeout`](skills/closeout/SKILL.md), installed only on request
+(`--install-closeout`). It assumes only plain Markdown plus git and treats any
+richer tooling as optional, so it keeps the minimalism intact. The scaffold sets
+the store up; closeout keeps it healthy. See [Maintenance](#maintenance).
+
 ## Relationship to built-in `/remember`
 
 This **complements** the built-in system; it doesn't replace it. Both run
@@ -184,11 +192,26 @@ live in [BOOTSTRAP.md](BOOTSTRAP.md).
 
 ## Maintenance
 
-Run the [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
-skill (also available as `/consolidate-memory`) periodically to merge
-duplicates, prune stale facts, fix orphan links, and surface promotion
-candidates. No-op on a small memory set — useful after ~10+ entries or a
-few months of accumulation, whichever comes first.
+Two complementary passes keep the store from rotting:
+
+- **`closeout` — session-end, ships here, opt-in.** A structured end-of-session
+  sweep over the memory and documentation systems that drift between sessions:
+  broken index links, stale or over-long entries, repo-doc drift, git hygiene.
+  Install it with `./bootstrap.sh --install-closeout` (or
+  `.\bootstrap.ps1 -InstallCloseout`); it then runs when you signal "wrap up" /
+  "session closeout". It needs only plain Markdown and git and treats richer
+  tooling as optional, so it's useful even in a minimal install. Re-sync on
+  demand with `--force`; remove with `--uninstall-closeout`.
+- **`/consolidate-memory` — periodic, external.** The
+  [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
+  skill does a deeper, occasional pass: merge duplicates, prune stale facts, fix
+  orphan links, surface promotion candidates. No-op on a small set — useful after
+  ~10+ entries or a few months, whichever comes first.
+
+The division of labor: `closeout` is the frequent, shallow, *multi-system* pass
+at the end of a work session; `/consolidate-memory` is the occasional, deep,
+*memory-only* dedup. `closeout` defers deep memory consolidation to it rather
+than duplicating it.
 
 ## What this repo deliberately does *not* do
 
@@ -196,10 +219,12 @@ few months of accumulation, whichever comes first.
   existing `Read` / `Edit` / `Write` tools — no new tool surface, no
   background process, no opaque store. Want auto-capture or retrieval
   embeddings? Pick a different tool.
-- **Install hooks or edit `settings.json`.** Bootstrap creates only Markdown
-  (the memory store plus an empty hooks *registry*). Hooks are a documented,
-  opt-in exception you add by hand following [`HOOKS.md`](HOOKS.md); the
-  scaffold never writes `settings.json` for you.
+- **Install hooks or edit `settings.json`.** Bootstrap writes only Markdown —
+  the memory store, an empty hooks *registry*, and (only with the opt-in
+  `--install-closeout` flag, default off) a copy of the bundled `closeout`
+  maintenance skill. It never installs a hook or touches `settings.json`. Hooks
+  are a documented, opt-in exception you add by hand following
+  [`HOOKS.md`](HOOKS.md).
 - **Ship anyone's actual memories.** Memories are personal and
   machine-local; this repo only carries the scaffold.
 - **Sync memories across machines.** Each install accrues its own entries.

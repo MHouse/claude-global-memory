@@ -46,7 +46,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess=$true)]
 param(
-    [switch]$Force
+    [switch]$Force,
+    [switch]$InstallCloseout,
+    [switch]$UninstallCloseout
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +63,11 @@ $snippet     = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
 $hooksDir         = Join-Path $claudeHome 'hooks'
 $registry         = Join-Path $hooksDir 'REGISTRY.md'
 $registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
+$skillsDir        = Join-Path $claudeHome 'skills'
+$closeoutDir      = Join-Path $skillsDir 'closeout'
+$closeoutTarget   = Join-Path $closeoutDir 'SKILL.md'
+$closeoutStamp    = Join-Path $closeoutDir '.delivered'
+$closeoutSource   = Join-Path $repoRoot 'skills\closeout\SKILL.md'
 
 if (-not (Test-Path $template)) {
     throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."
@@ -171,8 +178,47 @@ function Write-File($path, $lines) {
     Set-Content -Path $path -Value $content -Encoding utf8 -NoNewline
 }
 
+function Get-NormalizedHash($path) {
+    # SHA-256 of the file's normalized content (CRLF->LF, trailing ws/blank
+    # lines stripped), so the stamp survives CRLF/LF differences on Windows.
+    $text = (Read-NormalizedLines $path) -join "`n"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($text)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    return (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+function Test-IsReparsePoint($path) {
+    # True if $path is a symlink/junction (a reparse point) -- we must never
+    # write through one or we'd clobber its target.
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    $item = Get-Item -LiteralPath $path -Force
+    return [bool]($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+}
+
+function Install-Closeout($closeoutSource, $closeoutDir, $closeoutTarget, $closeoutStamp) {
+    # Copy source -> target atomically (temp then move), verify non-empty,
+    # refresh the .delivered stamp.
+    New-Item -ItemType Directory -Path $closeoutDir -Force | Out-Null
+    # Temp in the SAME dir as the target so the move is a same-volume rename
+    # (atomic), not a cross-volume copy+delete that could leave a torn file.
+    $tmp = Join-Path $closeoutDir ('.SKILL.tmp.' + [guid]::NewGuid().ToString('N'))
+    Copy-Item -LiteralPath $closeoutSource -Destination $tmp -Force
+    Move-Item -LiteralPath $tmp -Destination $closeoutTarget -Force
+    if ((Get-Item -LiteralPath $closeoutTarget).Length -le 0) {
+        throw "Closeout install wrote an empty file at $closeoutTarget"
+    }
+    Set-Content -Path $closeoutStamp -Value (Get-NormalizedHash $closeoutSource) -Encoding utf8 -NoNewline
+}
+
 # ---- run ----------------------------------------------------------------
 
+# LOCKSTEP PARITY (bootstrap.ps1 <-> bootstrap.sh): these two scripts MUST behave
+# identically. Change one => change the other. Operations that must stay in sync:
+#   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
+#   - closeout skill (opt-in): install / uninstall / whole-file drift report /
+#     .delivered stamp / symlink-junction refusal / -Force + re-install resync
+# Verify BOTH scripts with the manual recipe in BOOTSTRAP.md against a throwaway
+# $env:USERPROFILE / HOME before landing a change.
 $summary        = @()
 $driftReported  = $false
 
@@ -316,6 +362,80 @@ if (-not (Test-Path $registry)) {
         $summary += "  DRIFT     $registry (preamble differs from template; re-run with -Force to sync)"
         Show-Diff 'REGISTRY.md preamble' $liveRegPreamble.Preamble $registryTemplatePreamble.Preamble
         $driftReported = $true
+    }
+}
+
+# 6. Closeout skill (opt-in) -- whole-file managed surface; mirrors the
+#    --install-closeout / -InstallCloseout block in bootstrap.sh exactly.
+#    Owns the whole SKILL.md, installs only on -InstallCloseout, re-syncs only
+#    on demand (-Force, or -InstallCloseout re-run for an unmodified-but-stale
+#    copy). The .delivered stamp tells a stale-but-untouched copy from an edited
+#    one. Never writes through a symlink/junction.
+if ($UninstallCloseout) {
+    if (Test-IsReparsePoint $closeoutDir) {
+        # Remove only the junction/symlink itself, never recurse into its target.
+        if ($PSCmdlet.ShouldProcess($closeoutDir, 'remove closeout symlink/junction')) {
+            (Get-Item -LiteralPath $closeoutDir -Force).Delete()
+        }
+        $summary += "  removed   $closeoutDir (closeout symlink/junction removed; target left untouched)"
+    } elseif ((Test-Path -LiteralPath $closeoutTarget) -or (Test-Path -LiteralPath $closeoutDir)) {
+        # Remove only what we installed; rmdir only if empty so we never clobber
+        # files the user added under the skill directory.
+        if ($PSCmdlet.ShouldProcess($closeoutTarget, 'uninstall closeout skill')) {
+            Remove-Item -LiteralPath $closeoutTarget -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $closeoutStamp  -Force -ErrorAction SilentlyContinue
+            if ((Test-Path -LiteralPath $closeoutDir) -and -not (Get-ChildItem -LiteralPath $closeoutDir -Force)) {
+                Remove-Item -LiteralPath $closeoutDir -Force
+            }
+        }
+        $summary += "  removed   $closeoutTarget (closeout uninstalled)"
+    } else {
+        $summary += "  skip      closeout skill (not installed)"
+    }
+} elseif ((Test-IsReparsePoint $closeoutDir) -or (Test-IsReparsePoint $closeoutTarget)) {
+    $summary += "  WARN      $closeoutDir is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+} elseif (-not (Test-Path -LiteralPath $closeoutTarget)) {
+    if ($InstallCloseout) {
+        if (-not (Test-Path $closeoutSource)) { throw "Closeout source not found at $closeoutSource -- run from a clone of the repo." }
+        if ($PSCmdlet.ShouldProcess($closeoutTarget, 'install closeout skill')) {
+            Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
+        }
+        $summary += "  created   $closeoutTarget (closeout installed)"
+    } else {
+        $summary += "  skip      closeout skill (not installed; -InstallCloseout to add)"
+    }
+} else {
+    if (-not (Test-Path $closeoutSource)) { throw "Closeout source not found at $closeoutSource -- run from a clone of the repo." }
+    $srcHash  = Get-NormalizedHash $closeoutSource
+    $instHash = Get-NormalizedHash $closeoutTarget
+    if ($srcHash -eq $instHash) {
+        $summary += "  exists    $closeoutTarget (in sync)"
+    } else {
+        $stampHash = ''
+        if (Test-Path -LiteralPath $closeoutStamp) { $stampHash = (Get-Content -LiteralPath $closeoutStamp -Raw).Trim() }
+        if ($stampHash -ne '' -and $stampHash -eq $instHash) {
+            # Unmodified since we wrote it, but the repo moved forward.
+            if ($InstallCloseout -or $Force) {
+                if ($PSCmdlet.ShouldProcess($closeoutTarget, 'update closeout skill to current version')) {
+                    Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
+                }
+                $summary += "  synced    $closeoutTarget (updated to current version)"
+            } else {
+                $summary += "  DRIFT     $closeoutTarget (newer version available; your copy is unmodified -- -InstallCloseout or -Force to update)"
+                $driftReported = $true
+            }
+        } else {
+            # User-edited (or no stamp to prove otherwise): never clobber without -Force.
+            if ($Force) {
+                if ($PSCmdlet.ShouldProcess($closeoutTarget, 'overwrite modified closeout skill')) {
+                    Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
+                }
+                $summary += "  synced    $closeoutTarget (overwrote modified copy)"
+            } else {
+                $summary += "  DRIFT     $closeoutTarget (differs and looks edited; -Force overwrites your changes)"
+                $driftReported = $true
+            }
+        }
     }
 }
 
