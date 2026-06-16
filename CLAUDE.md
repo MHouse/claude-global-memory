@@ -76,4 +76,8 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   `## Verification`.
 - "Testing" here is mostly running the bootstrap scripts against a
   throwaway `HOME`/`$env:USERPROFILE` and confirming idempotency + drift
-  detection, since there's no app to run.
+  detection, since there's no app to run. The bundled harness automates
+  exactly that — run **both** `bash test/verify.sh` and
+  `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
+  (they cover the managed surfaces + the closeout matrix and are kept in
+  lockstep, same as the two bootstrap scripts).
