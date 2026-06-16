@@ -189,8 +189,8 @@ replace_preamble() {
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
 #   - closeout skill (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / --force + re-install resync
-# Verify BOTH scripts with the manual recipe in BOOTSTRAP.md against a throwaway
-# HOME / $env:USERPROFILE before landing a change.
+# Verify BOTH scripts after a change: `bash test/verify.sh` AND
+# `pwsh -NoProfile -File test/verify.ps1` (or the manual recipe in BOOTSTRAP.md).
 summary=()
 drift_reported=0
 

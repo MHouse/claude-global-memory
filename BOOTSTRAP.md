@@ -67,7 +67,25 @@ skill is the exception: a whole-file surface with no in-file marker — its
 `.delivered` sidecar hash plays that role, letting bootstrap tell an
 unmodified-but-stale copy from one you edited.)
 
-### Verifying the closeout skill (optional; run on BOTH scripts)
+### Verifying a bootstrap change (the test harness)
+
+There's no CI and no app to run, so verification is by hand against a throwaway
+`HOME` / `$env:USERPROFILE`. The bundled harness does exactly that, automatically:
+
+```bash
+bash test/verify.sh                      # macOS / Linux / Git Bash
+pwsh -NoProfile -File test/verify.ps1    # Windows
+```
+
+Each spins up a throwaway home, runs `bootstrap` in every mode, asserts the
+managed-surface contract (idempotency, drift detection, `--force` resync, entry
+preservation) **and** the full closeout matrix, and exits non-zero on any
+failure. Run **both** before landing a bootstrap change — `bootstrap.sh` and
+`bootstrap.ps1` must behave identically, and the two harnesses are kept in
+lockstep to prove it. The closeout steps below are the same checks spelled out
+by hand.
+
+### Verifying the closeout skill by hand (optional; run on BOTH scripts)
 
 `closeout` is opt-in and is a *whole-file* managed surface, so verify it
 separately against a throwaway `HOME` / `$env:USERPROFILE`. Run the same recipe

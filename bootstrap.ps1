@@ -217,8 +217,8 @@ function Install-Closeout($closeoutSource, $closeoutDir, $closeoutTarget, $close
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
 #   - closeout skill (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / -Force + re-install resync
-# Verify BOTH scripts with the manual recipe in BOOTSTRAP.md against a throwaway
-# $env:USERPROFILE / HOME before landing a change.
+# Verify BOTH scripts after a change: `pwsh -NoProfile -File test/verify.ps1` AND
+# `bash test/verify.sh` (or the manual recipe in BOOTSTRAP.md).
 $summary        = @()
 $driftReported  = $false
 
