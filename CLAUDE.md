@@ -79,5 +79,5 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   detection, since there's no app to run. The bundled harness automates
   exactly that — run **both** `bash test/verify.sh` and
   `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
-  (they cover the managed surfaces + the closeout matrix and are kept in
-  lockstep, same as the two bootstrap scripts).
+  (CI also runs both on every PR; they cover the managed surfaces + the closeout
+  matrix and are kept in lockstep, same as the two bootstrap scripts).
