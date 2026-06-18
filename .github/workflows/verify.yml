@@ -1,0 +1,23 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Runs the bundled bootstrap harness on both platforms. The two scripts must
+# behave identically (see CLAUDE.md / BOOTSTRAP.md), so both run on every PR.
+jobs:
+  bash:
+    name: verify.sh (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash test/verify.sh
+
+  powershell:
+    name: verify.ps1 (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pwsh -NoProfile -ExecutionPolicy Bypass -File test/verify.ps1
