@@ -28,14 +28,14 @@ Nothing on disk is duplicated, nothing already there is overwritten —
 including a hand-customised `~/.claude/CLAUDE.md` whose existing
 sections stay exactly where they are.
 
-After running, optionally seed `user_identity.md` (step 4) and verify
-(step 5). Done.
+After running, optionally seed `user_identity.md` and verify — both are
+below and apply to either path. Done.
 
 ### Flags
 
 | Flag (bash) | Flag (PowerShell) | Effect |
 |---|---|---|
-| (none) | (none) | Detect drift and print a diff, but write nothing. Default. |
+| (none) | (none) | Create anything missing; on regions already present, detect drift and report it without resyncing. Default. |
 | `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. |
 | `--dry-run` | `-WhatIf` | Report intended actions, write nothing. Combines with `--force`. |
 | `--install-closeout` | `-InstallCloseout` | Install the bundled `closeout` maintenance skill to `~/.claude/skills/closeout/` (default: not installed). Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
@@ -116,7 +116,7 @@ If running `.\bootstrap.ps1` errors out with "running scripts is
 disabled," either invoke once with bypass:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
+pwsh -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 …or flip the user-scope policy once:
@@ -172,7 +172,7 @@ script does this check for you.)
 > string in `settings.json`), expand it manually:
 > `C:\Users\<you>\.claude\memory\MEMORY.md`.
 
-## 4. Optionally seed `user_identity.md`
+## Optionally seed `user_identity.md` (after either path)
 
 Skip unless you want to. If you'd rather have your name/email
 pre-loaded into every session, create one entry:
@@ -180,15 +180,14 @@ pre-loaded into every session, create one entry:
 ```markdown
 ---
 name: User identity and email addresses
-description: Default name + email for git config, commit trailers, etc.
+description: Which email to use in which context, and the default when ambiguous
 type: user
 ---
 
-- Name: <Your Name>
-- Default email: <you@example.com>
-- Other addresses (when ambiguous, default to the one above):
-  - work: <you@work.example.com>
-  - personal: <you@personal.example>
+- **Work email:** `<you@work.example>` — <context, e.g. employer; used for most things>
+- **Personal email:** `<you@personal.example>` — <context, e.g. personal projects>
+
+When uncertain which to assume in a new context, default to the work email and ask if the project looks personal.
 ```
 
 Save as `~/.claude/memory/user_identity.md` and add a line to
@@ -196,7 +195,7 @@ Save as `~/.claude/memory/user_identity.md` and add a line to
 the only seed worth doing during bootstrap; everything else accrues
 naturally.
 
-## 5. Verify
+## Verify (after either path)
 
 - `~/.claude/memory/MEMORY.md` exists with the taxonomy header and an
   empty `## Entries` section.
