@@ -81,3 +81,12 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
   (CI also runs both on every PR; they cover the managed surfaces + the closeout
   matrix and are kept in lockstep, same as the two bootstrap scripts).
+
+## Deploy Configuration
+
+This repo doesn't deploy. It's a clone-and-run scaffold — distribution is
+`git clone` + `./bootstrap.sh` (or `.\bootstrap.ps1`) per machine, and the
+release mechanism is a git tag + GitHub Release cut by hand from `main` after
+PRs merge (first one: `v1.0.0`). There's no server, host, or health-check URL,
+so `/land-and-deploy` has nothing to act on here — use the feature-branch +
+squash-merge PR flow above, then tag a release when a milestone warrants it.
