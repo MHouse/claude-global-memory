@@ -48,7 +48,7 @@ routing can't reliably solve it at the moment of need. Every hook gets a row in
   |---|---|---|
   | `Skill` | `Skill` | `.skill` (plus `.args`) |
   | `Bash` | `Bash` | `.command` |
-  | `Edit` / `Write` | `Edit` | `.file_path` (plus content) |
+  | `Edit` / `Write` | `Edit\|Write` | `.file_path` (plus content) |
   | `Read` | `Read` | `.file_path` |
   | MCP tool | `mcp__server__tool` | tool-specific |
 

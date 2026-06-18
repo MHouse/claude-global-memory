@@ -32,12 +32,12 @@ in parallel after bootstrap, covering different scopes:
 | Scope             | Per-project                        | Global (cross-project)                   |
 | Location          | `~/.claude/projects/<slug>/memory/`| `~/.claude/memory/`                      |
 | Setup             | Zero — built into Claude Code      | One-time `./bootstrap.sh`                |
-| Auto-capture      | Yes — model saves opportunistically| Yes — model saves opportunistically      |
+| Opportunistic save| Yes — model saves opportunistically| Yes — model saves opportunistically      |
 | Loaded at         | Session start (per-project)        | Session start (every session)            |
 | Good for          | "This Postgres table joins weirdly to that one in *this* repo" | "Don't suggest `cp -i` on Git Bash; use `\\cp`" |
 
-Pick the layer when you save: a fact true only inside one project goes to
-built-in `/remember`; a fact true everywhere on this machine goes under
+Pick the layer when you save: a fact that only applies inside one project
+goes to built-in `/remember`; a fact that applies everywhere on this machine goes under
 `~/.claude/memory/`. Both share the same file format, so promoting one to
 the other is a `mv` between dirs. (The per-project `<slug>` is
 harness-derived — each clone, worktree, and platform gets its own; the
