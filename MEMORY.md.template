@@ -35,6 +35,15 @@ external pointer rather than current project state, prefer `reference` over
 per-project memory (`~/.claude/projects/<slug>/memory/`) — promote or demote it.
 The worked pairings table and examples live in this repo's `README.md`.
 
+## Authoring conventions
+
+Entries follow the per-project memory format the harness defines (`[[name]]`
+links target a memory's `name:` field; `feedback`/`project` bodies carry
+`Why:` / `How to apply:` lines; dates absolute). This layer differs in two
+ways only: frontmatter `type` is **flat** (not nested under `metadata:`), and
+related gotchas group per `tools/{name}.md` rather than one file per fact.
+Keep `name:` short and slug-like so `[[name]]` link targets stay clean.
+
 ## Index-line salience (the lazy-load escape hatch)
 
 Entry bodies load **lazily** — only when one looks relevant to the task.
