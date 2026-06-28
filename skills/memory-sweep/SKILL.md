@@ -1,6 +1,6 @@
 ---
 name: memory-sweep
-description: Periodic cross-store memory pass — inventories every memory store at once (all per-project dirs + the cross-project store) and proposes PROMOTIONS of facts that have proven cross-cutting. Use for a deliberate, occasional sweep: "memory sweep", "sweep memory across projects", "promote memories to cross-project", "memory spring cleaning". It does NOT reimplement the per-directory deep clean — it delegates that to the shipped consolidate-memory skill — and is broader than closeout (one session/project). Read-mostly; promotions are proposed, never auto-applied.
+description: Periodic cross-store memory pass: inventories every memory store at once (all per-project dirs + the cross-project store) and proposes PROMOTIONS of facts that have proven cross-cutting. Use whenever the user wants a deliberate, occasional sweep across projects — "memory sweep", "sweep memory across projects", "promote memories to cross-project", "memory spring cleaning". Boundaries: NOT for saving a single new fact (that's the built-in /remember); NOT for tidying one directory (that's consolidate-memory, which this delegates to); NOT session wrap-up (that's closeout). This is the only pass that spans stores and promotes between them; promotions are proposed, never auto-applied.
 ---
 
 # Memory Sweep
