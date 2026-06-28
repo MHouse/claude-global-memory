@@ -38,7 +38,7 @@ below and apply to either path. Done.
 | (none) | (none) | Create anything missing; on regions already present, detect drift and report it without resyncing. Default. |
 | `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. |
 | `--dry-run` | `-WhatIf` | Report intended actions, write nothing. Combines with `--force`. |
-| `--install-skills [names]` | `-InstallSkills [-Skills <names>]` | Install bundled skills (`closeout`, `consolidate-memory-deep`) to `~/.claude/skills/` (default: not installed). Names select a subset; omit for all. Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
+| `--install-skills [names]` | `-InstallSkills [-Skills <names>]` | Install bundled skills (`closeout`, `memory-sweep`) to `~/.claude/skills/` (default: not installed). Names select a subset; omit for all. Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
 | `--uninstall-skills [names]` | `-UninstallSkills [-Skills <names>]` | Remove installed bundled skills (subset by name, or all). |
 
 ### What "drift" means
@@ -81,7 +81,7 @@ pwsh -NoProfile -File test/verify.ps1    # Windows
 Each spins up a throwaway home, runs `bootstrap` in every mode, asserts the
 managed-surface contract (idempotency, drift detection, `--force` resync, entry
 preservation) **and** the full per-skill matrix (run for each bundled skill:
-`closeout` and `consolidate-memory-deep`), and exits non-zero on any
+`closeout` and `memory-sweep`), and exits non-zero on any
 failure. CI runs both on every PR; run them locally before pushing too, since
 it's faster — `bootstrap.sh` and `bootstrap.ps1` must behave identically, and the
 two harnesses are kept in lockstep to prove it. The per-skill steps below are the
@@ -218,8 +218,8 @@ save them — and the system fills itself.
 Once the memory set passes ~10 entries or a few months of accumulation
 (no-op before that), run a consolidation pass periodically:
 
-- **`consolidate-memory-deep`** (bundled here; `--install-skills`) — the deep
-  pass across *all* memory stores plus promotion of cross-cutting per-project
-  facts. The whole-machine sweep.
-- **`anthropic-skills:consolidate-memory`** — a lighter single-directory dedup;
-  does not span stores or promote.
+- **`memory-sweep`** (bundled here; `--install-skills`) — the whole-machine
+  cross-store sweep: promotes cross-cutting per-project facts, and delegates the
+  per-directory deep clean of the cross-project store to `consolidate-memory`.
+- **`anthropic-skills:consolidate-memory`** — the deep single-directory pass
+  that `memory-sweep` calls; on its own it does not span stores or promote.

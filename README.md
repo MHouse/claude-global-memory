@@ -18,7 +18,7 @@ A memory store needs upkeep, not just setup — entries and docs drift out of
 sync across sessions, and a store that quietly rots is worse than none. So the
 package also ships **optional** maintenance skills,
 [`closeout`](skills/closeout/SKILL.md) and
-[`consolidate-memory-deep`](skills/consolidate-memory-deep/SKILL.md), installed
+[`memory-sweep`](skills/memory-sweep/SKILL.md), installed
 only on request (`--install-skills`). It assumes only plain Markdown plus git and treats any
 richer tooling as optional, so it keeps the minimalism intact. The scaffold sets
 the store up; closeout keeps it healthy. See [Maintenance](#maintenance).
@@ -50,7 +50,7 @@ project, by design. The binding constraint isn't token cost — it's
 *routing quality*: as the index grows, the relevance signal weakens and
 Claude starts pulling in adjacent-but-unrelated entries. Keep entries to
 one line and the file under ~200 lines (~100 entries); past that, prune
-or promote (the [`consolidate-memory-deep`](#maintenance) skill surfaces
+or promote (the [`memory-sweep`](#maintenance) skill surfaces
 promotion candidates). A few high-value lines may run longer to carry an inline
 rule — see [File format](#file-format) — but that spends the same budget,
 so reserve it for the critical few.
@@ -223,22 +223,25 @@ for all. Re-sync on demand with `--force`; remove with `--uninstall-skills`.
   broken index links, stale or over-long entries, repo-doc drift, git hygiene.
   Runs when you signal "wrap up" / "session closeout". Scoped to the current
   session and project; needs only plain Markdown and git.
-- **`consolidate-memory-deep` — periodic, bundled.** The occasional *deep* pass
-  across **every** memory store at once — all per-project dirs plus the
-  cross-project store — and the only tool that proposes **promotions**:
-  per-project facts that have proven cross-cutting, moved up to the
-  cross-project layer. Mechanical fixes auto-apply; promotions and unverifiable
-  retirements wait for one confirmation.
+- **`memory-sweep` — periodic, bundled.** The occasional cross-store pass over
+  **every** memory store at once — all per-project dirs plus the cross-project
+  store. It is the only tool that proposes **promotions**: per-project facts
+  that have proven cross-cutting, moved up to the cross-project layer. It does
+  **not** reimplement the per-directory deep clean — it *delegates* that to
+  `consolidate-memory` (run on the cross-project store), inheriting that skill's
+  behavior as it evolves. Promotions are proposed, never auto-applied.
 - **`/consolidate-memory` — single-directory, external.** The
   [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
-  skill does a lighter pass over *one* directory: merge duplicates, prune stale
-  facts, fix orphan links. It does not span stores or promote.
+  skill is the deep per-*directory* consolidation engine: merge duplicates,
+  prune stale facts, fix orphan links. `memory-sweep` calls it; it does not
+  itself span stores or promote.
 
 The division of labor by scope and cadence: `closeout` is the frequent, shallow,
-*this-session/this-project* pass; `consolidate-memory-deep` is the occasional,
-deep, *whole-machine* sweep that also promotes; `/consolidate-memory` is the
-single-directory dedup. `closeout` defers deep, cross-store consolidation to
-`consolidate-memory-deep` rather than duplicating it.
+*this-session/this-project* pass; `consolidate-memory` is the deep
+*single-directory* engine; `memory-sweep` is the occasional *whole-machine*
+sweep that runs `consolidate-memory` on the cross-project store and adds
+cross-store **promotion**. `closeout` defers deep, cross-store work to
+`memory-sweep` rather than duplicating it.
 
 ## What this repo deliberately does *not* do
 

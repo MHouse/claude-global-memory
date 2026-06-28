@@ -19,7 +19,7 @@
        (above '## Registered hooks'). This is plain Markdown -- it is NOT a
        hook and never mutates settings.json. The scaffold installs no hooks.
     6. ONLY with -InstallSkills: copies the bundled skills (closeout,
-       consolidate-memory-deep) to ~/.claude/skills/<name>/SKILL.md (whole-file
+       memory-sweep) to ~/.claude/skills/<name>/SKILL.md (whole-file
        managed surfaces, each with a .delivered stamp). Default off. Pass
        -Skills <names> to select a subset; omit for all. -UninstallSkills
        removes them.
@@ -72,7 +72,7 @@ $registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
 $skillsDir        = Join-Path $claudeHome 'skills'
 # Bundled skills shipped by this repo, installed on demand (see -InstallSkills).
 # Add a skill by dropping skills\<name>\SKILL.md and listing <name> here.
-$bundledSkills    = @('closeout', 'consolidate-memory-deep')
+$bundledSkills    = @('closeout', 'memory-sweep')
 
 if (-not (Test-Path $template)) {
     throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."

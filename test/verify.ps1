@@ -57,7 +57,7 @@ FileIs "fresh: MEMORY.md created"    (Join-Path $script:TH '.claude\memory\MEMOR
 FileIs "fresh: CLAUDE.md created"    (Join-Path $script:TH '.claude\CLAUDE.md')
 FileIs "fresh: REGISTRY.md created"  (Join-Path $script:TH '.claude\hooks\REGISTRY.md')
 Has    "fresh: closeout skipped (opt-in)" $out "skip      closeout skill (not installed"
-Has    "fresh: consolidate-memory-deep skipped (opt-in)" $out "skip      consolidate-memory-deep skill (not installed"
+Has    "fresh: memory-sweep skipped (opt-in)" $out "skip      memory-sweep skill (not installed"
 $out = Run
 Hasnt  "idempotent: 2nd run reports no DRIFT" $out "DRIFT"
 Hasnt  "idempotent: 2nd run creates nothing"  $out "created"
@@ -135,7 +135,7 @@ function Test-Skill($name) {
 }
 
 Test-Skill closeout
-Test-Skill consolidate-memory-deep
+Test-Skill memory-sweep
 
 if ($script:TH -and (Test-Path $script:TH)) { Remove-Item -LiteralPath $script:TH -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host ""

@@ -45,7 +45,7 @@ file   "fresh: MEMORY.md created"      "$TH/.claude/memory/MEMORY.md"
 file   "fresh: CLAUDE.md created"      "$TH/.claude/CLAUDE.md"
 file   "fresh: REGISTRY.md created"    "$TH/.claude/hooks/REGISTRY.md"
 has    "fresh: closeout skipped (opt-in)" "$out" "skip      closeout skill (not installed"
-has    "fresh: consolidate-memory-deep skipped (opt-in)" "$out" "skip      consolidate-memory-deep skill (not installed"
+has    "fresh: memory-sweep skipped (opt-in)" "$out" "skip      memory-sweep skill (not installed"
 out="$(run)"
 hasnt  "idempotent: 2nd run reports no DRIFT" "$out" "DRIFT"
 hasnt  "idempotent: 2nd run creates nothing"  "$out" "created"
@@ -130,7 +130,7 @@ verify_skill() {
 }
 
 verify_skill closeout
-verify_skill consolidate-memory-deep
+verify_skill memory-sweep
 
 echo ""
 echo "verify.sh: $pass passed, $fail failed"
