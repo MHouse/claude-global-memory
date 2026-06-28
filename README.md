@@ -124,7 +124,8 @@ one way, which a reader can't infer and so is worth stating:
 
 - **Group by subject, not one-fact-per-file.** A `tools/{name}.md` file
   collects several related gotchas for that tool; per-project memory keeps one
-  fact per file.
+  fact per file. Conversely, a file that has drifted into unrelated subjects
+  should be split back into per-subject files — group related, split unrelated.
 
 Keep `name:` short and slug-like so `[[name]]` link targets stay clean rather
 than full sentences.
