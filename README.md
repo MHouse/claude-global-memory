@@ -16,11 +16,13 @@ empty system on any machine and let it accrue naturally.
 
 A memory store needs upkeep, not just setup — entries and docs drift out of
 sync across sessions, and a store that quietly rots is worse than none. So the
-package also ships an **optional** session-end maintenance skill,
-[`closeout`](skills/closeout/SKILL.md), installed only on request
-(`--install-closeout`). It assumes only plain Markdown plus git and treats any
-richer tooling as optional, so it keeps the minimalism intact. The scaffold sets
-the store up; closeout keeps it healthy. See [Maintenance](#maintenance).
+package also ships **optional** maintenance skills,
+[`closeout`](skills/closeout/SKILL.md) and
+[`memory-sweep`](skills/memory-sweep/SKILL.md), installed
+only on request (`--install-skills`). They assume only plain Markdown plus git and treat any
+richer tooling as optional, so they keep the minimalism intact. The scaffold sets
+the store up; the bundled skills keep it healthy — `closeout` at session end,
+`memory-sweep` for periodic cross-store consolidation and promotion. See [Maintenance](#maintenance).
 
 ## Relationship to built-in `/remember`
 
@@ -49,8 +51,8 @@ project, by design. The binding constraint isn't token cost — it's
 *routing quality*: as the index grows, the relevance signal weakens and
 Claude starts pulling in adjacent-but-unrelated entries. Keep entries to
 one line and the file under ~200 lines (~100 entries); past that, prune
-or promote (the [`/consolidate-memory`](#maintenance) skill surfaces
-candidates). A few high-value lines may run longer to carry an inline
+or promote (the [`memory-sweep`](#maintenance) skill surfaces
+promotion candidates). A few high-value lines may run longer to carry an inline
 rule — see [File format](#file-format) — but that spends the same budget,
 so reserve it for the critical few.
 
@@ -122,7 +124,8 @@ one way, which a reader can't infer and so is worth stating:
 
 - **Group by subject, not one-fact-per-file.** A `tools/{name}.md` file
   collects several related gotchas for that tool; per-project memory keeps one
-  fact per file.
+  fact per file. Conversely, a file that has drifted into unrelated subjects
+  should be split back into per-subject files — group related, split unrelated.
 
 Keep `name:` short and slug-like so `[[name]]` link targets stay clean rather
 than full sentences.
@@ -212,26 +215,35 @@ live in [BOOTSTRAP.md](BOOTSTRAP.md).
 
 ## Maintenance
 
-Two complementary passes keep the store from rotting:
+Three passes keep the store from rotting, at three cadences. The two bundled
+skills install on demand with `./bootstrap.sh --install-skills` (or
+`.\bootstrap.ps1 -InstallSkills`); pass skill names to install a subset, omit
+for all. Re-sync on demand with `--force`; remove with `--uninstall-skills`.
 
-- **`closeout` — session-end, ships here, opt-in.** A structured end-of-session
+- **`closeout` — session-end, bundled, opt-in.** A structured end-of-session
   sweep over the memory and documentation systems that drift between sessions:
   broken index links, stale or over-long entries, repo-doc drift, git hygiene.
-  Install it with `./bootstrap.sh --install-closeout` (or
-  `.\bootstrap.ps1 -InstallCloseout`); it then runs when you signal "wrap up" /
-  "session closeout". It needs only plain Markdown and git and treats richer
-  tooling as optional, so it's useful even in a minimal install. Re-sync on
-  demand with `--force`; remove with `--uninstall-closeout`.
-- **`/consolidate-memory` — periodic, external.** The
+  Runs when you signal "wrap up" / "session closeout". Scoped to the current
+  session and project; needs only plain Markdown and git.
+- **`memory-sweep` — periodic, bundled.** The occasional cross-store pass over
+  **every** memory store at once — all per-project dirs plus the cross-project
+  store. It is the only tool that proposes **promotions**: per-project facts
+  that have proven cross-cutting, moved up to the cross-project layer. It does
+  **not** reimplement the per-directory deep clean — it *delegates* that to
+  `consolidate-memory` (run on the cross-project store), inheriting that skill's
+  behavior as it evolves. Promotions are proposed, never auto-applied.
+- **`/consolidate-memory` — single-directory, external.** The
   [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
-  skill does a deeper, occasional pass: merge duplicates, prune stale facts, fix
-  orphan links, surface promotion candidates. No-op on a small set — useful after
-  ~10+ entries or a few months, whichever comes first.
+  skill is the deep per-*directory* consolidation engine: merge duplicates,
+  prune stale facts, fix orphan links. `memory-sweep` calls it; it does not
+  itself span stores or promote.
 
-The division of labor: `closeout` is the frequent, shallow, *multi-system* pass
-at the end of a work session; `/consolidate-memory` is the occasional, deep,
-*memory-only* dedup. `closeout` defers deep memory consolidation to it rather
-than duplicating it.
+The division of labor by scope and cadence: `closeout` is the frequent, shallow,
+*this-session/this-project* pass; `consolidate-memory` is the deep
+*single-directory* engine; `memory-sweep` is the occasional *whole-machine*
+sweep that runs `consolidate-memory` on the cross-project store and adds
+cross-store **promotion**. `closeout` defers deep, cross-store work to
+`memory-sweep` rather than duplicating it.
 
 ## What this repo deliberately does *not* do
 
@@ -241,8 +253,8 @@ than duplicating it.
   embeddings? Pick a different tool.
 - **Install hooks or edit `settings.json`.** Bootstrap writes only Markdown —
   the memory store, an empty hooks *registry*, and (only with the opt-in
-  `--install-closeout` flag, default off) a copy of the bundled `closeout`
-  maintenance skill. It never installs a hook or touches `settings.json`. Hooks
+  `--install-skills` flag, default off) copies of the bundled maintenance
+  skills. It never installs a hook or touches `settings.json`. Hooks
   are a documented, opt-in exception you add by hand following
   [`HOOKS.md`](HOOKS.md).
 - **Ship anyone's actual memories.** Memories are personal and

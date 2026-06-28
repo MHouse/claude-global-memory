@@ -41,8 +41,9 @@ Entries follow the per-project memory format the harness defines, frontmatter
 included — `type` nested under `metadata:`; `[[name]]` links target a memory's
 `name:` field; `feedback`/`project` bodies carry `Why:` / `How to apply:` lines;
 dates absolute. This layer differs in just one way: related gotchas group per
-`tools/{name}.md` rather than one file per fact. Keep `name:` short and
-slug-like so `[[name]]` link targets stay clean.
+`tools/{name}.md` rather than one file per fact — and conversely, a file that
+has accreted unrelated subjects should be split back into per-subject files.
+Keep `name:` short and slug-like so `[[name]]` link targets stay clean.
 
 ## Index-line salience (the lazy-load escape hatch)
 
@@ -71,10 +72,16 @@ index line and how to add one, see `HOOKS.md` (the scaffold installs none).
 
 ## Maintenance
 
-Run `/consolidate-memory` (the `anthropic-skills:consolidate-memory`
-skill) periodically to merge duplicates, prune stale facts, fix orphan
-links, and surface promotion candidates. No-op on a small memory set —
-pays off after ~10+ entries or a few months of accumulation, whichever
-comes first.
+Two skills keep the store healthy; both no-op on a small set and pay off
+after ~10+ entries or a few months:
+
+- **`memory-sweep`** (bundled here; install with `bootstrap --install-skills`)
+  — the periodic cross-store sweep over **every** memory store (all per-project
+  dirs + this one). The only tool that proposes **promotions**: per-project
+  facts that have proven useful across projects, moved up here. It *delegates*
+  the per-directory deep clean to `consolidate-memory` rather than reimplementing it.
+- **`anthropic-skills:consolidate-memory`** — the deep pass over a *single*
+  directory (merge duplicates, prune stale facts, fix orphan links);
+  `memory-sweep` calls it. It does not span stores or promote.
 
 ## Entries

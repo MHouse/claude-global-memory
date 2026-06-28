@@ -87,7 +87,7 @@ Scan `~/.claude/memory/MEMORY.md` and the entries it links (treat the Step 2 can
 - **Duplicates** — obvious overlaps that should merge.
 - **Index size** — if the index passes ~100 entries / ~200 lines, note it; routing quality degrades past that.
 
-Spot-check based on what's salient from this session — not a full audit. For deeper hygiene, defer to a memory-consolidation skill if one is installed (see Step 7); otherwise say so. Record each fix to the ledger (group: **Hygiene fixes**) with the exact before→after in the payload.
+Spot-check based on what's salient from this session — not a full audit. This is a shallow spot-check, not deep consolidation — and closeout is single-project, so it can't see whether a fact is duplicated across *other* projects or has earned promotion. Defer deep work to the consolidation skills (Step 7): single-directory dedup to `consolidate-memory`; cross-store dedup + **promotion** of cross-cutting facts to `memory-sweep`. If neither is installed, say so. Record each fix to the ledger (group: **Hygiene fixes**) with the exact before→after in the payload.
 
 ### Step 4: Project memory hygiene
 
@@ -110,7 +110,7 @@ Only if `~/.claude/hooks/REGISTRY.md` exists. Review the registered rows for ent
 These steps run *only* when the corresponding tool is present. Presence-check first; if absent, skip in one line — do not treat the absence as a finding.
 
 - **Auto-captured learnings store** — if a learnings tool is on PATH, scan recent entries for content drift (a recommended workflow that changed even though files still exist), and record corrected entries. Skip in one line if no such tool is installed.
-- **Memory-consolidation skill** — if one is installed and Step 3/4 found more than a couple of stale entries (or the index is large), record a ledger action to run it for a deeper pass. Otherwise skip.
+- **Deep memory consolidation** — these are deliberate passes, so **recommend (record a ledger action), never run them inline.** If `memory-sweep` (bundled alongside closeout) is installed and Step 3/4 found more than a couple stale entries, the cross-project index is growing, or a saved lesson looks like it may already live in other projects (a promotion candidate closeout can't verify), record an action to run `memory-sweep` — the whole-machine, cross-store + promotion pass. If only `anthropic-skills:consolidate-memory` is available, record that instead for single-directory dedup. If neither is installed, skip.
 
 This is the only place framework-specific tooling appears, and every line here is gated. The four steps above (2-6) are the portable core and must produce useful output with none of these tools present.
 
