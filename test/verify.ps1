@@ -5,7 +5,7 @@
 .DESCRIPTION
   Runs the BOOTSTRAP.md recipe against a throwaway USERPROFILE and asserts the
   managed-surface idempotency + drift-detection + -Force resync contract, and
-  the full opt-in closeout matrix. The repo's manual test convention (no CI, no
+  the full opt-in per-skill matrix (closeout + memory-sweep). The repo's manual test convention (no CI, no
   app) made runnable. Run by hand before landing a bootstrap change:
 
       pwsh -NoProfile -File test/verify.ps1

@@ -19,9 +19,10 @@ sync across sessions, and a store that quietly rots is worse than none. So the
 package also ships **optional** maintenance skills,
 [`closeout`](skills/closeout/SKILL.md) and
 [`memory-sweep`](skills/memory-sweep/SKILL.md), installed
-only on request (`--install-skills`). It assumes only plain Markdown plus git and treats any
-richer tooling as optional, so it keeps the minimalism intact. The scaffold sets
-the store up; closeout keeps it healthy. See [Maintenance](#maintenance).
+only on request (`--install-skills`). They assume only plain Markdown plus git and treat any
+richer tooling as optional, so they keep the minimalism intact. The scaffold sets
+the store up; the bundled skills keep it healthy — `closeout` at session end,
+`memory-sweep` for periodic cross-store consolidation and promotion. See [Maintenance](#maintenance).
 
 ## Relationship to built-in `/remember`
 

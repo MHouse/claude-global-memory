@@ -3,7 +3,7 @@
 #
 # Runs the BOOTSTRAP.md recipe against a throwaway HOME and asserts: the
 # managed-surface idempotency + drift-detection + --force resync contract, and
-# the full opt-in closeout matrix. This is the repo's manual test convention
+# the full opt-in per-skill matrix (closeout + memory-sweep). This is the repo's manual test convention
 # (no CI, no app) made runnable. Run it by hand before landing a bootstrap
 # change:  bash test/verify.sh
 #
