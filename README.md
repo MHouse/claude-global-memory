@@ -89,7 +89,8 @@ Each memory is a short Markdown file with YAML frontmatter:
 ---
 name: Short title shown in the index
 description: One-line summary of when and why this matters
-type: user | feedback | project | reference
+metadata:
+  type: user | feedback | project | reference
 ---
 
 Body content — what to remember, when to apply it, paths or links if useful.
@@ -107,20 +108,18 @@ The four types:
 - **`reference`** — pointers to external systems Claude should know about
   (vault paths, runbooks, tool quirks, CLI argument gotchas).
 
-**Authoring conventions are inherited, not restated.** Linking, body
-structure, and date handling follow the per-project memory format the Claude
-Code harness defines and ships into every session: `[[name]]` links target a
-memory's `name:` field, `feedback`/`project` bodies follow with `Why:` /
-`How to apply:` lines, and relative dates are written absolute. This scaffold
-deliberately does **not** copy those rules into the always-loaded surfaces
-(`MEMORY.md` preamble, the `CLAUDE.md` snippet) — duplicating them buys nothing
-at write-time (the harness instructions are already in context) and a stale
-copy that drifts against the harness is worse than none. It differs from the
-per-project format in exactly two ways, which a reader can't infer and so are
-worth stating:
+**Authoring conventions are inherited, not restated.** Frontmatter, linking,
+body structure, and date handling follow the per-project memory format the
+Claude Code harness defines and ships into every session: `type` nested under
+`metadata:`, `[[name]]` links target a memory's `name:` field,
+`feedback`/`project` bodies follow with `Why:` / `How to apply:` lines, and
+relative dates are written absolute. This scaffold deliberately does **not**
+copy those rules into the always-loaded surfaces (`MEMORY.md` preamble, the
+`CLAUDE.md` snippet) — duplicating them buys nothing at write-time (the harness
+instructions are already in context) and a stale copy that drifts against the
+harness is worse than none. It differs from the per-project format in exactly
+one way, which a reader can't infer and so is worth stating:
 
-- **Flat frontmatter.** `type: reference` directly, not nested under a
-  `metadata:` key.
 - **Group by subject, not one-fact-per-file.** A `tools/{name}.md` file
   collects several related gotchas for that tool; per-project memory keeps one
   fact per file.
