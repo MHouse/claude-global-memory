@@ -182,7 +182,8 @@ pre-loaded into every session, create one entry:
 ---
 name: User identity and email addresses
 description: Which email to use in which context, and the default when ambiguous
-type: user
+metadata:
+  type: user
 ---
 
 - **Work email:** `<you@work.example>` — <context, e.g. employer; used for most things>
