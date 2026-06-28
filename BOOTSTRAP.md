@@ -38,8 +38,8 @@ below and apply to either path. Done.
 | (none) | (none) | Create anything missing; on regions already present, detect drift and report it without resyncing. Default. |
 | `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. |
 | `--dry-run` | `-WhatIf` | Report intended actions, write nothing. Combines with `--force`. |
-| `--install-closeout` | `-InstallCloseout` | Install the bundled `closeout` maintenance skill to `~/.claude/skills/closeout/` (default: not installed). Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
-| `--uninstall-closeout` | `-UninstallCloseout` | Remove the installed `closeout` skill. |
+| `--install-skills [names]` | `-InstallSkills [-Skills <names>]` | Install bundled skills (`closeout`, `consolidate-memory-deep`) to `~/.claude/skills/` (default: not installed). Names select a subset; omit for all. Re-run, or `--force`, to re-sync an unmodified-but-stale copy. |
+| `--uninstall-skills [names]` | `-UninstallSkills [-Skills <names>]` | Remove installed bundled skills (subset by name, or all). |
 
 ### What "drift" means
 
@@ -53,7 +53,7 @@ from the new canonical and offer to resync.
 | `~/.claude/memory/MEMORY.md` | Everything above `## Entries` | `## Entries` and everything below |
 | `~/.claude/CLAUDE.md` | The `## Cross-project memory` section (its H2 through the next H2 or EOF) | Everything outside that section |
 | `~/.claude/hooks/REGISTRY.md` | Everything above `## Registered hooks` | `## Registered hooks` and the rows below |
-| `~/.claude/skills/closeout/SKILL.md` | The **whole file** (opt-in; present only after `--install-closeout`) | Nothing inside it — but bootstrap won't write *through* a symlink/junction at that path, and won't overwrite a copy you edited without `--force` |
+| `~/.claude/skills/<name>/SKILL.md` (each bundled skill) | The **whole file** (opt-in; present only after `--install-skills`) | Nothing inside it — but bootstrap won't write *through* a symlink/junction at that path, and won't overwrite a copy you edited without `--force` |
 
 `REGISTRY.md` is an empty hooks ledger. Bootstrap seeds it because it's plain
 Markdown — it is **not** a hook and does **not** touch `settings.json`. The
@@ -62,10 +62,10 @@ scaffold installs no hooks; adding one is a documented, opt-in recipe in
 
 Each managed region carries an HTML comment marker so the ownership
 boundary is visible in the file itself. Edit *outside* the managed
-regions freely; treat *inside* them as upstream-owned. (The `closeout`
-skill is the exception: a whole-file surface with no in-file marker — its
-`.delivered` sidecar hash plays that role, letting bootstrap tell an
-unmodified-but-stale copy from one you edited.)
+regions freely; treat *inside* them as upstream-owned. (Bundled skills are the
+exception: each is a whole-file surface with no in-file marker — a `.delivered`
+sidecar hash plays that role, letting bootstrap tell an unmodified-but-stale
+copy from one you edited.)
 
 ### Verifying a bootstrap change (the test harness)
 
@@ -80,20 +80,22 @@ pwsh -NoProfile -File test/verify.ps1    # Windows
 
 Each spins up a throwaway home, runs `bootstrap` in every mode, asserts the
 managed-surface contract (idempotency, drift detection, `--force` resync, entry
-preservation) **and** the full closeout matrix, and exits non-zero on any
+preservation) **and** the full per-skill matrix (run for each bundled skill:
+`closeout` and `consolidate-memory-deep`), and exits non-zero on any
 failure. CI runs both on every PR; run them locally before pushing too, since
 it's faster — `bootstrap.sh` and `bootstrap.ps1` must behave identically, and the
-two harnesses are kept in lockstep to prove it. The closeout steps below are the
+two harnesses are kept in lockstep to prove it. The per-skill steps below are the
 same checks spelled out by hand.
 
-### Verifying the closeout skill by hand (optional; run on BOTH scripts)
+### Verifying a bundled skill by hand (optional; run on BOTH scripts)
 
-`closeout` is opt-in and is a *whole-file* managed surface, so verify it
-separately against a throwaway `HOME` / `$env:USERPROFILE`. Run the same recipe
-with `bootstrap.sh` **and** `bootstrap.ps1` — they must behave identically.
+Each bundled skill is opt-in and a *whole-file* managed surface, so verify it
+separately against a throwaway `HOME` / `$env:USERPROFILE`. The walkthrough uses
+`closeout`; the same steps apply to any bundled skill — swap the name. Run the
+recipe with `bootstrap.sh` **and** `bootstrap.ps1` — they must behave identically.
 
 1. **Bare run, not installed** → summary shows `skip … closeout skill (not installed)`.
-2. **`--install-closeout`** → `created … (closeout installed)`; `SKILL.md` and a
+2. **`--install-skills closeout`** → `created … (closeout installed)`; `SKILL.md` and a
    `.delivered` stamp now exist under `~/.claude/skills/closeout/`.
 3. **Bare run again** → `exists … (in sync)`, nothing written.
 4. **Edit the installed `SKILL.md`, bare run** → `DRIFT … (differs and looks
@@ -101,10 +103,10 @@ with `bootstrap.sh` **and** `bootstrap.ps1` — they must behave identically.
 5. **`--force`** → `synced … (overwrote modified copy)`.
 6. **Stale-but-unmodified copy** (older content whose normalized hash matches the
    stamp), bare run → `DRIFT … (newer version available; your copy is
-   unmodified)`; `--install-closeout` or `--force` → `synced … (updated to
+   unmodified)`; `--install-skills closeout` or `--force` → `synced … (updated to
    current version)`.
-7. **`--uninstall-closeout`** → `removed …`; the file is gone.
-8. **Symlink/junction at `~/.claude/skills/closeout`**, `--install-closeout` →
+7. **`--uninstall-skills closeout`** → `removed …`; the file is gone.
+8. **Symlink/junction at `~/.claude/skills/closeout`**, `--install-skills closeout` →
    `WARN … is a symlink/junction; not managing it` (bootstrap never writes
    through it).
 
@@ -213,6 +215,11 @@ save them — and the system fills itself.
 
 ## Maintenance (later, not now)
 
-Run the `anthropic-skills:consolidate-memory` skill periodically once
-the memory set passes ~10 entries or a few months of accumulation,
-whichever comes first. No-op before that.
+Once the memory set passes ~10 entries or a few months of accumulation
+(no-op before that), run a consolidation pass periodically:
+
+- **`consolidate-memory-deep`** (bundled here; `--install-skills`) — the deep
+  pass across *all* memory stores plus promotion of cross-cutting per-project
+  facts. The whole-machine sweep.
+- **`anthropic-skills:consolidate-memory`** — a lighter single-directory dedup;
+  does not span stores or promote.

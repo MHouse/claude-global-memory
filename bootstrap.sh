@@ -14,10 +14,12 @@
 #      REGISTRY.md.template if absent; else drift-checks its preamble. This
 #      is plain Markdown -- NOT a hook, never mutates settings.json. The
 #      scaffold installs no hooks.
-#   6. ONLY with --install-closeout: copies the bundled closeout skill to
-#      ~/.claude/skills/closeout/SKILL.md (a whole-file managed surface, with
-#      a .delivered stamp so a stale-but-unmodified copy is told apart from an
-#      edited one). Default off. --uninstall-closeout removes it.
+#   6. ONLY with --install-skills: copies the bundled skills (closeout,
+#      consolidate-memory-deep) to ~/.claude/skills/<name>/SKILL.md (whole-file
+#      managed surfaces, each with a .delivered stamp so a stale-but-unmodified
+#      copy is told apart from an edited one). Default off. Names may follow the
+#      flag to select a subset (e.g. --install-skills closeout); omit for all.
+#      --uninstall-skills [names] removes them.
 #
 # Drift = file's managed region differs from canonical content in this
 # repo. Default: report with a diff, do not modify. Re-run with --force
@@ -27,16 +29,17 @@
 # Flags:
 #   --force                Rewrite drifted managed regions with canonical content.
 #   --dry-run              Report intended actions, write nothing.
-#   --install-closeout     Install the bundled closeout skill to ~/.claude/skills/.
-#   --uninstall-closeout   Remove the installed closeout skill.
+#   --install-skills [names]    Install bundled skills to ~/.claude/skills/ (omit names for all).
+#   --uninstall-skills [names]  Remove installed bundled skills (omit names for all).
 #   -h, --help   Show usage.
 
 set -euo pipefail
 
 force=0
 dry_run=0
-install_closeout=0
-uninstall_closeout=0
+install_skills=0
+uninstall_skills=0
+skill_filter=()
 
 usage() {
     sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -46,8 +49,14 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --force)   force=1; shift ;;
         --dry-run) dry_run=1; shift ;;
-        --install-closeout)   install_closeout=1; shift ;;
-        --uninstall-closeout) uninstall_closeout=1; shift ;;
+        --install-skills)
+            install_skills=1; shift
+            while [[ $# -gt 0 && "$1" != -* ]]; do skill_filter+=("$1"); shift; done
+            ;;
+        --uninstall-skills)
+            uninstall_skills=1; shift
+            while [[ $# -gt 0 && "$1" != -* ]]; do skill_filter+=("$1"); shift; done
+            ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -64,10 +73,9 @@ hooks_dir="${claude_home}/hooks"
 registry="${hooks_dir}/REGISTRY.md"
 registry_template="${repo_root}/REGISTRY.md.template"
 skills_dir="${claude_home}/skills"
-closeout_dir="${skills_dir}/closeout"
-closeout_target="${closeout_dir}/SKILL.md"
-closeout_stamp="${closeout_dir}/.delivered"
-closeout_source="${repo_root}/skills/closeout/SKILL.md"
+# Bundled skills shipped by this repo, installed on demand (see --install-skills).
+# Add a skill by dropping skills/<name>/SKILL.md and listing <name> here.
+bundled_skills=("closeout" "consolidate-memory-deep")
 
 [ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
@@ -187,7 +195,7 @@ replace_preamble() {
 # LOCKSTEP PARITY (bootstrap.sh <-> bootstrap.ps1): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
-#   - closeout skill (opt-in): install / uninstall / whole-file drift report /
+#   - bundled skills (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / --force + re-install resync
 # Verify BOTH scripts after a change: `bash test/verify.sh` AND
 # `pwsh -NoProfile -File test/verify.ps1` (or the manual recipe in BOOTSTRAP.md).
@@ -325,87 +333,123 @@ else
     fi
 fi
 
-# 6. Closeout skill (opt-in). A whole-file managed surface, distinct from the
-#    region-based ones above: bootstrap owns the entire SKILL.md, installs it
-#    only on --install-closeout, and re-syncs only on demand (--force, or an
-#    --install-closeout re-run for an unmodified-but-stale copy). A .delivered
-#    stamp records the normalized hash of what we last wrote, so a stale copy
-#    the user never touched is told apart from one they edited. Never writes
-#    THROUGH a symlink/junction (that would clobber the link's target).
+# 6. Bundled skills (opt-in). Each is a whole-file managed surface, distinct
+#    from the region-based ones above: bootstrap owns the entire SKILL.md,
+#    installs it only on --install-skills, and re-syncs only on demand (--force,
+#    or an --install-skills re-run for an unmodified-but-stale copy). A
+#    .delivered stamp records the normalized hash of what we last wrote, so a
+#    stale copy the user never touched is told apart from one they edited. Never
+#    writes THROUGH a symlink/junction (that would clobber the link's target).
+#    The same logic runs for every skill in $bundled_skills via manage_skill.
 # Portable SHA-256: coreutils `sha256sum` (Linux, Git Bash) or `shasum -a 256`
 # (macOS, which ships no sha256sum). Same digest either way.
 _sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
 # printf '%s' "$(...)" drops the trailing newline so this matches the PowerShell
 # Get-NormalizedHash (which joins lines with no trailing newline) byte-for-byte.
 normalized_hash() { printf '%s' "$(normalize "$1")" | _sha256 | awk '{print $1}'; }
-closeout_write() {
-    # Copy source -> target atomically, refresh the stamp. Honors dry-run.
-    [[ "$dry_run" -eq 1 ]] && return 0
-    mkdir -p "$closeout_dir"
-    # Temp in the SAME dir as the target so the mv is a same-filesystem rename
-    # (atomic), not a cross-fs copy+unlink that could leave a torn file.
-    local tmp; tmp="$(mktemp "${closeout_dir}/.SKILL.tmp.XXXXXX")"
-    cp "$closeout_source" "$tmp" && mv "$tmp" "$closeout_target"
-    [ -s "$closeout_target" ] || { echo "Closeout install wrote an empty file at $closeout_target" >&2; exit 1; }
-    normalized_hash "$closeout_source" > "$closeout_stamp"
+
+# Is $1 selected by the optional skill filter? Empty filter = all bundled skills.
+skill_selected() {
+    local name=$1 s
+    [ ${#skill_filter[@]} -eq 0 ] && return 0
+    for s in "${skill_filter[@]}"; do [ "$s" == "$name" ] && return 0; done
+    return 1
 }
 
-if [[ "$uninstall_closeout" -eq 1 ]]; then
-    if [ -L "$closeout_dir" ]; then
-        # Remove only the link, never recurse into (and delete) its target.
-        if [[ "$dry_run" -eq 0 ]]; then rm -f "$closeout_dir"; fi
-        note "  removed   $closeout_dir (closeout symlink/junction removed; target left untouched)"
-    elif [ -e "$closeout_target" ] || [ -e "$closeout_dir" ]; then
-        # Remove only what we installed; rmdir only if the dir is now empty so we
-        # never clobber files the user added under the skill directory.
-        if [[ "$dry_run" -eq 0 ]]; then
-            rm -f "$closeout_target" "$closeout_stamp"
-            rmdir "$closeout_dir" 2>/dev/null || true
-        fi
-        note "  removed   $closeout_target (closeout uninstalled)"
-    else
-        note "  skip      closeout skill (not installed)"
-    fi
-elif [ -L "$closeout_dir" ] || [ -L "$closeout_target" ]; then
-    note "  WARN      $closeout_dir is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
-elif [ ! -e "$closeout_target" ]; then
-    if [[ "$install_closeout" -eq 1 ]]; then
-        [ -f "$closeout_source" ] || { echo "Closeout source not found at $closeout_source -- run from a clone of the repo." >&2; exit 1; }
-        closeout_write
-        note "  created   $closeout_target (closeout installed)"
-    else
-        note "  skip      closeout skill (not installed; --install-closeout to add)"
-    fi
-else
-    [ -f "$closeout_source" ] || { echo "Closeout source not found at $closeout_source -- run from a clone of the repo." >&2; exit 1; }
-    src_hash="$(normalized_hash "$closeout_source")"
-    inst_hash="$(normalized_hash "$closeout_target")"
-    if [[ "$src_hash" == "$inst_hash" ]]; then
-        note "  exists    $closeout_target (in sync)"
-    else
-        stamp_hash=""
-        [ -f "$closeout_stamp" ] && stamp_hash="$(tr -d '[:space:]' < "$closeout_stamp")"
-        if [ -n "$stamp_hash" ] && [ "$stamp_hash" == "$inst_hash" ]; then
-            # Unmodified since we wrote it, but the repo moved forward.
-            if [[ "$install_closeout" -eq 1 || "$force" -eq 1 ]]; then
-                closeout_write
-                note "  synced    $closeout_target (updated to current version)"
-            else
-                note "  DRIFT     $closeout_target (newer version available; your copy is unmodified -- --install-closeout or --force to update)"
-                drift_reported=1
+skill_write() {
+    # $1 = skill name. Copy source -> target atomically, refresh the stamp. Honors dry-run.
+    local name=$1
+    local dir="${skills_dir}/${name}"
+    local target="${dir}/SKILL.md"
+    local stamp="${dir}/.delivered"
+    local source="${repo_root}/skills/${name}/SKILL.md"
+    [[ "$dry_run" -eq 1 ]] && return 0
+    mkdir -p "$dir"
+    # Temp in the SAME dir as the target so the mv is a same-filesystem rename
+    # (atomic), not a cross-fs copy+unlink that could leave a torn file.
+    local tmp; tmp="$(mktemp "${dir}/.SKILL.tmp.XXXXXX")"
+    cp "$source" "$tmp" && mv "$tmp" "$target"
+    [ -s "$target" ] || { echo "Skill install wrote an empty file at $target" >&2; exit 1; }
+    normalized_hash "$source" > "$stamp"
+}
+
+manage_skill() {
+    local name=$1
+    local dir="${skills_dir}/${name}"
+    local target="${dir}/SKILL.md"
+    local stamp="${dir}/.delivered"
+    local source="${repo_root}/skills/${name}/SKILL.md"
+
+    if [[ "$uninstall_skills" -eq 1 ]] && skill_selected "$name"; then
+        if [ -L "$dir" ]; then
+            # Remove only the link, never recurse into (and delete) its target.
+            if [[ "$dry_run" -eq 0 ]]; then rm -f "$dir"; fi
+            note "  removed   $dir ($name symlink/junction removed; target left untouched)"
+        elif [ -e "$target" ] || [ -e "$dir" ]; then
+            # Remove only what we installed; rmdir only if the dir is now empty so we
+            # never clobber files the user added under the skill directory.
+            if [[ "$dry_run" -eq 0 ]]; then
+                rm -f "$target" "$stamp"
+                rmdir "$dir" 2>/dev/null || true
             fi
+            note "  removed   $target ($name uninstalled)"
         else
-            # User-edited (or no stamp to prove otherwise): never clobber without --force.
-            if [[ "$force" -eq 1 ]]; then
-                closeout_write
-                note "  synced    $closeout_target (overwrote modified copy)"
-            else
-                note "  DRIFT     $closeout_target (differs and looks edited; --force overwrites your changes)"
-                drift_reported=1
-            fi
+            note "  skip      $name skill (not installed)"
+        fi
+        return 0
+    fi
+
+    if [ -L "$dir" ] || [ -L "$target" ]; then
+        note "  WARN      $dir is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return 0
+    fi
+
+    [ -f "$source" ] || { echo "Skill source not found at $source -- run from a clone of the repo." >&2; exit 1; }
+
+    if [ ! -e "$target" ]; then
+        if [[ "$install_skills" -eq 1 ]] && skill_selected "$name"; then
+            skill_write "$name"
+            note "  created   $target ($name installed)"
+        else
+            note "  skip      $name skill (not installed; --install-skills to add)"
+        fi
+        return 0
+    fi
+
+    # Installed: report drift, re-sync only on demand.
+    local src_hash inst_hash stamp_hash
+    src_hash="$(normalized_hash "$source")"
+    inst_hash="$(normalized_hash "$target")"
+    if [[ "$src_hash" == "$inst_hash" ]]; then
+        note "  exists    $target (in sync)"
+        return 0
+    fi
+    stamp_hash=""
+    [ -f "$stamp" ] && stamp_hash="$(tr -d '[:space:]' < "$stamp")"
+    if [ -n "$stamp_hash" ] && [ "$stamp_hash" == "$inst_hash" ]; then
+        # Unmodified since we wrote it, but the repo moved forward.
+        if { [[ "$install_skills" -eq 1 ]] && skill_selected "$name"; } || [[ "$force" -eq 1 ]]; then
+            skill_write "$name"
+            note "  synced    $target (updated to current version)"
+        else
+            note "  DRIFT     $target (newer version available; your copy is unmodified -- --install-skills or --force to update)"
+            drift_reported=1
+        fi
+    else
+        # User-edited (or no stamp to prove otherwise): never clobber without --force.
+        if [[ "$force" -eq 1 ]]; then
+            skill_write "$name"
+            note "  synced    $target (overwrote modified copy)"
+        else
+            note "  DRIFT     $target (differs and looks edited; --force overwrites your changes)"
+            drift_reported=1
         fi
     fi
-fi
+}
+
+for _skill in "${bundled_skills[@]}"; do
+    manage_skill "$_skill"
+done
 
 echo ""
 echo "Bootstrap complete."

@@ -18,6 +18,11 @@
        REGISTRY.md.template if absent; otherwise drift-checks its preamble
        (above '## Registered hooks'). This is plain Markdown -- it is NOT a
        hook and never mutates settings.json. The scaffold installs no hooks.
+    6. ONLY with -InstallSkills: copies the bundled skills (closeout,
+       consolidate-memory-deep) to ~/.claude/skills/<name>/SKILL.md (whole-file
+       managed surfaces, each with a .delivered stamp). Default off. Pass
+       -Skills <names> to select a subset; omit for all. -UninstallSkills
+       removes them.
 
   Drift detection means the file's managed region differs from the
   canonical content shipped in this repo. By default, drift is reported
@@ -47,8 +52,9 @@
 [CmdletBinding(SupportsShouldProcess=$true)]
 param(
     [switch]$Force,
-    [switch]$InstallCloseout,
-    [switch]$UninstallCloseout
+    [switch]$InstallSkills,
+    [switch]$UninstallSkills,
+    [string[]]$Skills
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,10 +70,9 @@ $hooksDir         = Join-Path $claudeHome 'hooks'
 $registry         = Join-Path $hooksDir 'REGISTRY.md'
 $registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
 $skillsDir        = Join-Path $claudeHome 'skills'
-$closeoutDir      = Join-Path $skillsDir 'closeout'
-$closeoutTarget   = Join-Path $closeoutDir 'SKILL.md'
-$closeoutStamp    = Join-Path $closeoutDir '.delivered'
-$closeoutSource   = Join-Path $repoRoot 'skills\closeout\SKILL.md'
+# Bundled skills shipped by this repo, installed on demand (see -InstallSkills).
+# Add a skill by dropping skills\<name>\SKILL.md and listing <name> here.
+$bundledSkills    = @('closeout', 'consolidate-memory-deep')
 
 if (-not (Test-Path $template)) {
     throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."
@@ -195,19 +200,25 @@ function Test-IsReparsePoint($path) {
     return [bool]($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
 }
 
-function Install-Closeout($closeoutSource, $closeoutDir, $closeoutTarget, $closeoutStamp) {
+function Install-Skill($source, $dir, $target, $stamp) {
     # Copy source -> target atomically (temp then move), verify non-empty,
     # refresh the .delivered stamp.
-    New-Item -ItemType Directory -Path $closeoutDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     # Temp in the SAME dir as the target so the move is a same-volume rename
     # (atomic), not a cross-volume copy+delete that could leave a torn file.
-    $tmp = Join-Path $closeoutDir ('.SKILL.tmp.' + [guid]::NewGuid().ToString('N'))
-    Copy-Item -LiteralPath $closeoutSource -Destination $tmp -Force
-    Move-Item -LiteralPath $tmp -Destination $closeoutTarget -Force
-    if ((Get-Item -LiteralPath $closeoutTarget).Length -le 0) {
-        throw "Closeout install wrote an empty file at $closeoutTarget"
+    $tmp = Join-Path $dir ('.SKILL.tmp.' + [guid]::NewGuid().ToString('N'))
+    Copy-Item -LiteralPath $source -Destination $tmp -Force
+    Move-Item -LiteralPath $tmp -Destination $target -Force
+    if ((Get-Item -LiteralPath $target).Length -le 0) {
+        throw "Skill install wrote an empty file at $target"
     }
-    Set-Content -Path $closeoutStamp -Value (Get-NormalizedHash $closeoutSource) -Encoding utf8 -NoNewline
+    Set-Content -Path $stamp -Value (Get-NormalizedHash $source) -Encoding utf8 -NoNewline
+}
+
+function Test-SkillSelected($name) {
+    # Empty/absent -Skills filter = all bundled skills.
+    if (-not $Skills -or $Skills.Count -eq 0) { return $true }
+    return ($Skills -contains $name)
 }
 
 # ---- run ----------------------------------------------------------------
@@ -215,7 +226,7 @@ function Install-Closeout($closeoutSource, $closeoutDir, $closeoutTarget, $close
 # LOCKSTEP PARITY (bootstrap.ps1 <-> bootstrap.sh): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
-#   - closeout skill (opt-in): install / uninstall / whole-file drift report /
+#   - bundled skills (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / -Force + re-install resync
 # Verify BOTH scripts after a change: `pwsh -NoProfile -File test/verify.ps1` AND
 # `bash test/verify.sh` (or the manual recipe in BOOTSTRAP.md).
@@ -365,78 +376,99 @@ if (-not (Test-Path $registry)) {
     }
 }
 
-# 6. Closeout skill (opt-in) -- whole-file managed surface; mirrors the
-#    --install-closeout / -InstallCloseout block in bootstrap.sh exactly.
-#    Owns the whole SKILL.md, installs only on -InstallCloseout, re-syncs only
-#    on demand (-Force, or -InstallCloseout re-run for an unmodified-but-stale
+# 6. Bundled skills (opt-in) -- whole-file managed surfaces; mirrors the
+#    --install-skills / --uninstall-skills block in bootstrap.sh exactly.
+#    Each owns its whole SKILL.md, installs only on -InstallSkills, re-syncs only
+#    on demand (-Force, or -InstallSkills re-run for an unmodified-but-stale
 #    copy). The .delivered stamp tells a stale-but-untouched copy from an edited
-#    one. Never writes through a symlink/junction.
-if ($UninstallCloseout) {
-    if (Test-IsReparsePoint $closeoutDir) {
-        # Remove only the junction/symlink itself, never recurse into its target.
-        if ($PSCmdlet.ShouldProcess($closeoutDir, 'remove closeout symlink/junction')) {
-            (Get-Item -LiteralPath $closeoutDir -Force).Delete()
-        }
-        $summary += "  removed   $closeoutDir (closeout symlink/junction removed; target left untouched)"
-    } elseif ((Test-Path -LiteralPath $closeoutTarget) -or (Test-Path -LiteralPath $closeoutDir)) {
-        # Remove only what we installed; rmdir only if empty so we never clobber
-        # files the user added under the skill directory.
-        if ($PSCmdlet.ShouldProcess($closeoutTarget, 'uninstall closeout skill')) {
-            Remove-Item -LiteralPath $closeoutTarget -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $closeoutStamp  -Force -ErrorAction SilentlyContinue
-            if ((Test-Path -LiteralPath $closeoutDir) -and -not (Get-ChildItem -LiteralPath $closeoutDir -Force)) {
-                Remove-Item -LiteralPath $closeoutDir -Force
+#    one. Never writes through a symlink/junction. Runs for every skill in
+#    $bundledSkills via Manage-Skill (advanced function so -WhatIf propagates).
+function Manage-Skill {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param($name)
+    $dir    = Join-Path $skillsDir $name
+    $target = Join-Path $dir 'SKILL.md'
+    $stamp  = Join-Path $dir '.delivered'
+    $source = Join-Path $repoRoot (Join-Path 'skills' (Join-Path $name 'SKILL.md'))
+
+    if ($UninstallSkills -and (Test-SkillSelected $name)) {
+        if (Test-IsReparsePoint $dir) {
+            # Remove only the junction/symlink itself, never recurse into its target.
+            if ($PSCmdlet.ShouldProcess($dir, "remove $name symlink/junction")) {
+                (Get-Item -LiteralPath $dir -Force).Delete()
             }
-        }
-        $summary += "  removed   $closeoutTarget (closeout uninstalled)"
-    } else {
-        $summary += "  skip      closeout skill (not installed)"
-    }
-} elseif ((Test-IsReparsePoint $closeoutDir) -or (Test-IsReparsePoint $closeoutTarget)) {
-    $summary += "  WARN      $closeoutDir is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
-} elseif (-not (Test-Path -LiteralPath $closeoutTarget)) {
-    if ($InstallCloseout) {
-        if (-not (Test-Path $closeoutSource)) { throw "Closeout source not found at $closeoutSource -- run from a clone of the repo." }
-        if ($PSCmdlet.ShouldProcess($closeoutTarget, 'install closeout skill')) {
-            Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
-        }
-        $summary += "  created   $closeoutTarget (closeout installed)"
-    } else {
-        $summary += "  skip      closeout skill (not installed; -InstallCloseout to add)"
-    }
-} else {
-    if (-not (Test-Path $closeoutSource)) { throw "Closeout source not found at $closeoutSource -- run from a clone of the repo." }
-    $srcHash  = Get-NormalizedHash $closeoutSource
-    $instHash = Get-NormalizedHash $closeoutTarget
-    if ($srcHash -eq $instHash) {
-        $summary += "  exists    $closeoutTarget (in sync)"
-    } else {
-        $stampHash = ''
-        if (Test-Path -LiteralPath $closeoutStamp) { $stampHash = (Get-Content -LiteralPath $closeoutStamp -Raw).Trim() }
-        if ($stampHash -ne '' -and $stampHash -eq $instHash) {
-            # Unmodified since we wrote it, but the repo moved forward.
-            if ($InstallCloseout -or $Force) {
-                if ($PSCmdlet.ShouldProcess($closeoutTarget, 'update closeout skill to current version')) {
-                    Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
+            $script:summary += "  removed   $dir ($name symlink/junction removed; target left untouched)"
+        } elseif ((Test-Path -LiteralPath $target) -or (Test-Path -LiteralPath $dir)) {
+            # Remove only what we installed; rmdir only if empty so we never clobber
+            # files the user added under the skill directory.
+            if ($PSCmdlet.ShouldProcess($target, "uninstall $name skill")) {
+                Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $stamp  -Force -ErrorAction SilentlyContinue
+                if ((Test-Path -LiteralPath $dir) -and -not (Get-ChildItem -LiteralPath $dir -Force)) {
+                    Remove-Item -LiteralPath $dir -Force
                 }
-                $summary += "  synced    $closeoutTarget (updated to current version)"
-            } else {
-                $summary += "  DRIFT     $closeoutTarget (newer version available; your copy is unmodified -- -InstallCloseout or -Force to update)"
-                $driftReported = $true
             }
+            $script:summary += "  removed   $target ($name uninstalled)"
         } else {
-            # User-edited (or no stamp to prove otherwise): never clobber without -Force.
-            if ($Force) {
-                if ($PSCmdlet.ShouldProcess($closeoutTarget, 'overwrite modified closeout skill')) {
-                    Install-Closeout $closeoutSource $closeoutDir $closeoutTarget $closeoutStamp
-                }
-                $summary += "  synced    $closeoutTarget (overwrote modified copy)"
-            } else {
-                $summary += "  DRIFT     $closeoutTarget (differs and looks edited; -Force overwrites your changes)"
-                $driftReported = $true
+            $script:summary += "  skip      $name skill (not installed)"
+        }
+        return
+    }
+
+    if ((Test-IsReparsePoint $dir) -or (Test-IsReparsePoint $target)) {
+        $script:summary += "  WARN      $dir is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return
+    }
+
+    if (-not (Test-Path $source)) { throw "Skill source not found at $source -- run from a clone of the repo." }
+
+    if (-not (Test-Path -LiteralPath $target)) {
+        if ($InstallSkills -and (Test-SkillSelected $name)) {
+            if ($PSCmdlet.ShouldProcess($target, "install $name skill")) {
+                Install-Skill $source $dir $target $stamp
             }
+            $script:summary += "  created   $target ($name installed)"
+        } else {
+            $script:summary += "  skip      $name skill (not installed; -InstallSkills to add)"
+        }
+        return
+    }
+
+    $srcHash  = Get-NormalizedHash $source
+    $instHash = Get-NormalizedHash $target
+    if ($srcHash -eq $instHash) {
+        $script:summary += "  exists    $target (in sync)"
+        return
+    }
+    $stampHash = ''
+    if (Test-Path -LiteralPath $stamp) { $stampHash = (Get-Content -LiteralPath $stamp -Raw).Trim() }
+    if ($stampHash -ne '' -and $stampHash -eq $instHash) {
+        # Unmodified since we wrote it, but the repo moved forward.
+        if (($InstallSkills -and (Test-SkillSelected $name)) -or $Force) {
+            if ($PSCmdlet.ShouldProcess($target, "update $name skill to current version")) {
+                Install-Skill $source $dir $target $stamp
+            }
+            $script:summary += "  synced    $target (updated to current version)"
+        } else {
+            $script:summary += "  DRIFT     $target (newer version available; your copy is unmodified -- -InstallSkills or -Force to update)"
+            $script:driftReported = $true
+        }
+    } else {
+        # User-edited (or no stamp to prove otherwise): never clobber without -Force.
+        if ($Force) {
+            if ($PSCmdlet.ShouldProcess($target, "overwrite modified $name skill")) {
+                Install-Skill $source $dir $target $stamp
+            }
+            $script:summary += "  synced    $target (overwrote modified copy)"
+        } else {
+            $script:summary += "  DRIFT     $target (differs and looks edited; -Force overwrites your changes)"
+            $script:driftReported = $true
         }
     }
+}
+
+foreach ($skillName in $bundledSkills) {
+    Manage-Skill $skillName
 }
 
 Write-Host ''

@@ -15,7 +15,6 @@ set -uo pipefail   # deliberately NOT -e: run every assertion, tally at the end
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 boot="$repo_root/bootstrap.sh"
-src="$repo_root/skills/closeout/SKILL.md"
 [ -f "$boot" ] || { echo "bootstrap.sh not found at $boot" >&2; exit 2; }
 
 pass=0; fail=0
@@ -46,6 +45,7 @@ file   "fresh: MEMORY.md created"      "$TH/.claude/memory/MEMORY.md"
 file   "fresh: CLAUDE.md created"      "$TH/.claude/CLAUDE.md"
 file   "fresh: REGISTRY.md created"    "$TH/.claude/hooks/REGISTRY.md"
 has    "fresh: closeout skipped (opt-in)" "$out" "skip      closeout skill (not installed"
+has    "fresh: consolidate-memory-deep skipped (opt-in)" "$out" "skip      consolidate-memory-deep skill (not installed"
 out="$(run)"
 hasnt  "idempotent: 2nd run reports no DRIFT" "$out" "DRIFT"
 hasnt  "idempotent: 2nd run creates nothing"  "$out" "created"
@@ -62,59 +62,75 @@ out="$(run --force)"
 has    "force: MEMORY.md synced" "$out" "synced    $TH/.claude/memory/MEMORY.md"
 if grep -qF "[my entry](x.md)" "$TH/.claude/memory/MEMORY.md"; then ok "force: user entry below ## Entries preserved"; else no "force: user entry was clobbered"; fi
 
-echo "== closeout: install / in-sync / edited-drift / force =="
-fresh_home
-run >/dev/null
-out="$(run --install-closeout)"
-has    "closeout: install reported" "$out" "created   $TH/.claude/skills/closeout/SKILL.md (closeout installed)"
-file   "closeout: SKILL.md present"  "$TH/.claude/skills/closeout/SKILL.md"
-file   "closeout: .delivered stamp present" "$TH/.claude/skills/closeout/.delivered"
-out="$(run)"
-has    "closeout: bare run in sync" "$out" "(in sync)"
-printf 'HAND EDIT\n' >> "$TH/.claude/skills/closeout/SKILL.md"
-out="$(run)"
-has    "closeout: edited copy -> edited-drift report" "$out" "differs and looks edited"
-out="$(run --force)"
-has    "closeout: --force overwrote modified" "$out" "overwrote modified copy"
+# ---- per-skill matrix --------------------------------------------------------
+# Factored into a function so every bundled skill gets identical coverage and
+# the bash/ps1 lockstep stays manageable. $1 = skill name. Mirrors Test-Skill in
+# verify.ps1 -- keep the two in sync.
+verify_skill() {
+  local name=$1
+  local ssrc="$repo_root/skills/$name/SKILL.md"
+  local sdir starget sstamp
+  # fresh_home reassigns $TH, so (re)derive the paths from the CURRENT $TH after
+  # every fresh_home call -- never capture them once at function entry.
+  _paths() { sdir="$TH/.claude/skills/$name"; starget="$sdir/SKILL.md"; sstamp="$sdir/.delivered"; }
 
-echo "== closeout: pristine-stale -> report, then re-install updates =="
-printf 'old version\n' > "$TH/.claude/skills/closeout/SKILL.md"
-nhash "$TH/.claude/skills/closeout/SKILL.md" > "$TH/.claude/skills/closeout/.delivered"
-out="$(run)"
-has    "closeout: unmodified-stale -> 'newer version' report" "$out" "newer version available; your copy is unmodified"
-out="$(run --install-closeout)"
-has    "closeout: re-install updates pristine-stale copy" "$out" "updated to current version"
-if diff -q <(normalize_t "$src") <(normalize_t "$TH/.claude/skills/closeout/SKILL.md") >/dev/null; then ok "closeout: updated copy matches repo source"; else no "closeout: updated copy != source"; fi
+  echo "== $name: install / in-sync / edited-drift / force =="
+  fresh_home; _paths
+  run >/dev/null
+  out="$(run --install-skills "$name")"
+  has    "$name: install reported" "$out" "created   $starget ($name installed)"
+  file   "$name: SKILL.md present"  "$starget"
+  file   "$name: .delivered stamp present" "$sstamp"
+  out="$(run)"
+  has    "$name: bare run in sync" "$out" "(in sync)"
+  printf 'HAND EDIT\n' >> "$starget"
+  out="$(run)"
+  has    "$name: edited copy -> edited-drift report" "$out" "differs and looks edited"
+  out="$(run --force)"
+  has    "$name: --force overwrote modified" "$out" "overwrote modified copy"
 
-echo "== closeout: uninstall preserves user files, removes only managed =="
-printf 'mine\n' > "$TH/.claude/skills/closeout/user-notes.txt"
-out="$(run --uninstall-closeout)"
-has    "closeout: uninstall reported" "$out" "closeout uninstalled"
-nofile "closeout: SKILL.md removed"   "$TH/.claude/skills/closeout/SKILL.md"
-nofile "closeout: .delivered removed" "$TH/.claude/skills/closeout/.delivered"
-file   "closeout: user file preserved" "$TH/.claude/skills/closeout/user-notes.txt"
-file   "closeout: non-empty dir kept"  "$TH/.claude/skills/closeout"
-rm -f "$TH/.claude/skills/closeout/user-notes.txt"
-run --install-closeout >/dev/null
-run --uninstall-closeout >/dev/null
-nofile "closeout: empty dir removed on uninstall" "$TH/.claude/skills/closeout"
+  echo "== $name: pristine-stale -> report, then re-install updates =="
+  printf 'old version\n' > "$starget"
+  nhash "$starget" > "$sstamp"
+  out="$(run)"
+  has    "$name: unmodified-stale -> 'newer version' report" "$out" "newer version available; your copy is unmodified"
+  out="$(run --install-skills "$name")"
+  has    "$name: re-install updates pristine-stale copy" "$out" "updated to current version"
+  if diff -q <(normalize_t "$ssrc") <(normalize_t "$starget") >/dev/null; then ok "$name: updated copy matches repo source"; else no "$name: updated copy != source"; fi
 
-echo "== closeout: symlink/junction refusal =="
-fresh_home; run >/dev/null
-mkdir -p "$TH/.claude/skills"
-if ln -s /tmp "$TH/.claude/skills/closeout" 2>/dev/null; then
-  out="$(run --install-closeout)"
-  has  "closeout: refuses to write through a symlink" "$out" "is a symlink/junction; not managing it"
-  rm -f "$TH/.claude/skills/closeout"
-else
-  printf '  SKIP  closeout: symlink refusal (this filesystem disallows symlinks; covered by verify.ps1 junction test)\n'
-fi
+  echo "== $name: uninstall preserves user files, removes only managed =="
+  printf 'mine\n' > "$sdir/user-notes.txt"
+  out="$(run --uninstall-skills "$name")"
+  has    "$name: uninstall reported" "$out" "$name uninstalled"
+  nofile "$name: SKILL.md removed"   "$starget"
+  nofile "$name: .delivered removed" "$sstamp"
+  file   "$name: user file preserved" "$sdir/user-notes.txt"
+  file   "$name: non-empty dir kept"  "$sdir"
+  rm -f "$sdir/user-notes.txt"
+  run --install-skills "$name" >/dev/null
+  run --uninstall-skills "$name" >/dev/null
+  nofile "$name: empty dir removed on uninstall" "$sdir"
 
-echo "== bare-run regression: never-installed HOME is stable =="
-fresh_home
-out1="$(run)"; out2="$(run)"
-hasnt "bare: never-installed run writes no closeout" "$out1" "created   $TH/.claude/skills/closeout"
-hasnt "bare: repeat run still no DRIFT" "$out2" "DRIFT"
+  echo "== $name: symlink/junction refusal =="
+  fresh_home; _paths; run >/dev/null
+  mkdir -p "$TH/.claude/skills"
+  if ln -s /tmp "$sdir" 2>/dev/null; then
+    out="$(run --install-skills "$name")"
+    has  "$name: refuses to write through a symlink" "$out" "is a symlink/junction; not managing it"
+    rm -f "$sdir"
+  else
+    printf '  SKIP  %s: symlink refusal (this filesystem disallows symlinks; covered by verify.ps1 junction test)\n' "$name"
+  fi
+
+  echo "== $name: bare-run regression: never-installed HOME is stable =="
+  fresh_home; _paths
+  out1="$(run)"; out2="$(run)"
+  hasnt "$name: never-installed run writes no $name" "$out1" "created   $sdir"
+  hasnt "$name: repeat run still no DRIFT" "$out2" "DRIFT"
+}
+
+verify_skill closeout
+verify_skill consolidate-memory-deep
 
 echo ""
 echo "verify.sh: $pass passed, $fail failed"

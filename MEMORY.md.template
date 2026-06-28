@@ -71,10 +71,16 @@ index line and how to add one, see `HOOKS.md` (the scaffold installs none).
 
 ## Maintenance
 
-Run `/consolidate-memory` (the `anthropic-skills:consolidate-memory`
-skill) periodically to merge duplicates, prune stale facts, fix orphan
-links, and surface promotion candidates. No-op on a small memory set —
-pays off after ~10+ entries or a few months of accumulation, whichever
-comes first.
+Two skills keep the store healthy; both no-op on a small set and pay off
+after ~10+ entries or a few months:
+
+- **`consolidate-memory-deep`** (bundled here; install with
+  `bootstrap --install-skills`) — the periodic *deep* pass across **every**
+  memory store (all per-project dirs + this one). It is the only tool that
+  proposes **promotions**: per-project facts that have proven useful across
+  projects, moved up here. Use it for an occasional whole-machine sweep.
+- **`anthropic-skills:consolidate-memory`** — a lighter pass over a *single*
+  directory: merge duplicates, prune stale facts, fix orphan links. It does
+  not span stores or promote.
 
 ## Entries

@@ -16,7 +16,6 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $boot = Join-Path $repoRoot 'bootstrap.ps1'
-$src  = Join-Path $repoRoot 'skills\closeout\SKILL.md'
 if (-not (Test-Path $boot)) { Write-Error "bootstrap.ps1 not found at $boot"; exit 2 }
 
 $script:pass = 0; $script:fail = 0
@@ -43,7 +42,12 @@ function NHash($p) {
     $b = [Text.Encoding]::UTF8.GetBytes(($l -join "`n"))
     return ((([Security.Cryptography.SHA256]::Create()).ComputeHash($b)) | ForEach-Object { $_.ToString('x2') }) -join ''
 }
-function Cdir { Join-Path $script:TH '.claude\skills\closeout' }
+# Derive skill paths from the CURRENT $script:TH on every call -- Fresh-Home
+# reassigns $script:TH, so never capture these once.
+function SkillDir($name)    { Join-Path $script:TH (Join-Path '.claude\skills' $name) }
+function SkillTarget($name) { Join-Path (SkillDir $name) 'SKILL.md' }
+function SkillStamp($name)  { Join-Path (SkillDir $name) '.delivered' }
+function SkillSrc($name)    { Join-Path $repoRoot (Join-Path 'skills' (Join-Path $name 'SKILL.md')) }
 
 Write-Host "== managed surfaces: fresh install + idempotency =="
 Fresh-Home
@@ -53,6 +57,7 @@ FileIs "fresh: MEMORY.md created"    (Join-Path $script:TH '.claude\memory\MEMOR
 FileIs "fresh: CLAUDE.md created"    (Join-Path $script:TH '.claude\CLAUDE.md')
 FileIs "fresh: REGISTRY.md created"  (Join-Path $script:TH '.claude\hooks\REGISTRY.md')
 Has    "fresh: closeout skipped (opt-in)" $out "skip      closeout skill (not installed"
+Has    "fresh: consolidate-memory-deep skipped (opt-in)" $out "skip      consolidate-memory-deep skill (not installed"
 $out = Run
 Hasnt  "idempotent: 2nd run reports no DRIFT" $out "DRIFT"
 Hasnt  "idempotent: 2nd run creates nothing"  $out "created"
@@ -68,57 +73,69 @@ $out = Run -Force
 Has    "force: synced reported" $out "synced"
 if ((Get-Content $mem -Raw).Contains('[my entry](x.md)')) { Ok "force: user entry below ## Entries preserved" } else { No "force: user entry clobbered" }
 
-Write-Host "== closeout: install / in-sync / edited-drift / -Force =="
-Fresh-Home
-Run | Out-Null
-$out = Run -InstallCloseout
-Has    "closeout: install reported" $out "(closeout installed)"
-FileIs "closeout: SKILL.md present"         (Join-Path (Cdir) 'SKILL.md')
-FileIs "closeout: .delivered stamp present" (Join-Path (Cdir) '.delivered')
-$out = Run
-Has    "closeout: bare run in sync" $out "(in sync)"
-Add-Content -Path (Join-Path (Cdir) 'SKILL.md') -Value "HAND EDIT"
-$out = Run
-Has    "closeout: edited copy -> edited-drift report" $out "differs and looks edited"
-$out = Run -Force
-Has    "closeout: -Force overwrote modified" $out "overwrote modified copy"
+# ---- per-skill matrix --------------------------------------------------------
+# Factored into a function so every bundled skill gets identical coverage and the
+# bash/ps1 lockstep stays manageable. Mirrors verify_skill in verify.sh -- keep
+# the two in sync. Skill paths come from SkillDir/etc, which read the CURRENT
+# $script:TH on every call (Fresh-Home reassigns it).
+function Test-Skill($name) {
+    $src = SkillSrc $name
 
-Write-Host "== closeout: pristine-stale -> report, then re-install updates =="
-Set-Content -Path (Join-Path (Cdir) 'SKILL.md') -Value "old version`n" -NoNewline
-Set-Content -Path (Join-Path (Cdir) '.delivered') -Value (NHash (Join-Path (Cdir) 'SKILL.md')) -NoNewline
-$out = Run
-Has    "closeout: unmodified-stale -> 'newer version' report" $out "newer version available; your copy is unmodified"
-$out = Run -InstallCloseout
-Has    "closeout: re-install updates pristine-stale copy" $out "updated to current version"
-if ((NHash (Join-Path (Cdir) 'SKILL.md')) -eq (NHash $src)) { Ok "closeout: updated copy matches repo source" } else { No "closeout: updated copy != source" }
+    Write-Host "== ${name}: install / in-sync / edited-drift / -Force =="
+    Fresh-Home
+    Run | Out-Null
+    $out = Run -InstallSkills -Skills $name
+    Has    "${name}: install reported" $out "created   $(SkillTarget $name) ($name installed)"
+    FileIs "${name}: SKILL.md present"         (SkillTarget $name)
+    FileIs "${name}: .delivered stamp present" (SkillStamp $name)
+    $out = Run
+    Has    "${name}: bare run in sync" $out "(in sync)"
+    Add-Content -Path (SkillTarget $name) -Value "HAND EDIT"
+    $out = Run
+    Has    "${name}: edited copy -> edited-drift report" $out "differs and looks edited"
+    $out = Run -Force
+    Has    "${name}: -Force overwrote modified" $out "overwrote modified copy"
 
-Write-Host "== closeout: uninstall preserves user files, removes only managed =="
-Set-Content -Path (Join-Path (Cdir) 'user-notes.txt') -Value 'mine'
-$out = Run -UninstallCloseout
-Has    "closeout: uninstall reported" $out "closeout uninstalled"
-NoFile "closeout: SKILL.md removed"   (Join-Path (Cdir) 'SKILL.md')
-NoFile "closeout: .delivered removed" (Join-Path (Cdir) '.delivered')
-FileIs "closeout: user file preserved" (Join-Path (Cdir) 'user-notes.txt')
-FileIs "closeout: non-empty dir kept"  (Cdir)
-Remove-Item (Join-Path (Cdir) 'user-notes.txt') -Force
-Run -InstallCloseout | Out-Null
-Run -UninstallCloseout | Out-Null
-NoFile "closeout: empty dir removed on uninstall" (Cdir)
+    Write-Host "== ${name}: pristine-stale -> report, then re-install updates =="
+    Set-Content -Path (SkillTarget $name) -Value "old version`n" -NoNewline
+    Set-Content -Path (SkillStamp $name) -Value (NHash (SkillTarget $name)) -NoNewline
+    $out = Run
+    Has    "${name}: unmodified-stale -> 'newer version' report" $out "newer version available; your copy is unmodified"
+    $out = Run -InstallSkills -Skills $name
+    Has    "${name}: re-install updates pristine-stale copy" $out "updated to current version"
+    if ((NHash (SkillTarget $name)) -eq (NHash $src)) { Ok "${name}: updated copy matches repo source" } else { No "${name}: updated copy != source" }
 
-Write-Host "== closeout: symlink/junction refusal (real junction) =="
-Fresh-Home; Run | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude\skills') -Force | Out-Null
-$ext = Join-Path $script:TH 'ext-target'; New-Item -ItemType Directory -Path $ext -Force | Out-Null
-New-Item -ItemType Junction -Path (Cdir) -Target $ext | Out-Null
-$out = Run -InstallCloseout
-Has    "closeout: refuses to write through a junction" $out "is a symlink/junction; not managing it"
-(Get-Item -LiteralPath (Cdir) -Force).Delete()
+    Write-Host "== ${name}: uninstall preserves user files, removes only managed =="
+    Set-Content -Path (Join-Path (SkillDir $name) 'user-notes.txt') -Value 'mine'
+    $out = Run -UninstallSkills -Skills $name
+    Has    "${name}: uninstall reported" $out "$name uninstalled"
+    NoFile "${name}: SKILL.md removed"   (SkillTarget $name)
+    NoFile "${name}: .delivered removed" (SkillStamp $name)
+    FileIs "${name}: user file preserved" (Join-Path (SkillDir $name) 'user-notes.txt')
+    FileIs "${name}: non-empty dir kept"  (SkillDir $name)
+    Remove-Item (Join-Path (SkillDir $name) 'user-notes.txt') -Force
+    Run -InstallSkills -Skills $name | Out-Null
+    Run -UninstallSkills -Skills $name | Out-Null
+    NoFile "${name}: empty dir removed on uninstall" (SkillDir $name)
 
-Write-Host "== bare-run regression: never-installed USERPROFILE is stable =="
-Fresh-Home
-$o1 = Run; $o2 = Run
-Hasnt "bare: never-installed run writes no closeout" $o1 "(closeout installed)"
-Hasnt "bare: repeat run still no DRIFT" $o2 "DRIFT"
+    Write-Host "== ${name}: symlink/junction refusal (real junction) =="
+    Fresh-Home; Run | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude\skills') -Force | Out-Null
+    $ext = Join-Path $script:TH "ext-target-$name"; New-Item -ItemType Directory -Path $ext -Force | Out-Null
+    New-Item -ItemType Junction -Path (SkillDir $name) -Target $ext | Out-Null
+    $out = Run -InstallSkills -Skills $name
+    Has    "${name}: refuses to write through a junction" $out "is a symlink/junction; not managing it"
+    (Get-Item -LiteralPath (SkillDir $name) -Force).Delete()
+
+    Write-Host "== ${name}: bare-run regression: never-installed USERPROFILE is stable =="
+    Fresh-Home
+    $o1 = Run; $o2 = Run
+    Hasnt "${name}: never-installed run writes no $name" $o1 "($name installed)"
+    Hasnt "${name}: repeat run still no DRIFT" $o2 "DRIFT"
+}
+
+Test-Skill closeout
+Test-Skill consolidate-memory-deep
 
 if ($script:TH -and (Test-Path $script:TH)) { Remove-Item -LiteralPath $script:TH -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host ""
