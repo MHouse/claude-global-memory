@@ -63,7 +63,7 @@ Present one batch, grouped:
 - **Recommendations** — other-project stores worth consolidating in-project.
 - **Deferred** — worktree-session stores left untouched.
 
-Present the batch in prose (each promotion's drafted entry beside its source entries — too long for picker labels), **state which you recommend** (high-confidence promotions, clear demotions) vs optional, then take the pick as one consolidated confirmation: tick what to apply, leave the rest; if there are more candidates than a single multi-select cleanly holds, group them or take picks free-form. For each confirmed **promotion**: write the new cross-project entry, add its `MEMORY.md` index line, then retire the per-project originals and update their indices. Apply confirmed demotions. **An unticked item is a complete decline — no pushback, no re-asking.**
+Present the batch in prose (each promotion's drafted entry beside its source entries — too long for picker labels), **state which you recommend** (high-confidence promotions, clear demotions) vs optional, then take the pick as one consolidated confirmation: tick what to apply, leave the rest; if there are more candidates than a single multi-select cleanly holds, group them **within that single prompt** (one round-trip — never sequential rounds) or take picks free-form. For each confirmed **promotion**: write the new cross-project entry, add its `MEMORY.md` index line, then retire the per-project originals and update their indices. Apply confirmed demotions. **An unticked item is a complete decline — no pushback, no re-asking.**
 
 ### Step 6: Summary
 
