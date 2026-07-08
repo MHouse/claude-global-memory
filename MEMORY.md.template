@@ -71,12 +71,16 @@ but does nothing non-interactively`.
 Reserve this for the handful that clear *both* bars; over-promoting bloats
 the index and erodes routing quality (see the cost note in the README) —
 and the loader injects into every non-lean subagent too, so bloat
-multiplies under fan-out (it warns past ~200 entry lines). On a machine
-without the hook, the global CLAUDE.md carries one fallback line: read
-this file before proceeding. When a rule is destructive *and*
-mechanically matchable, a `PreToolUse` guardrail hook is the heavier
-action-point mechanism — for *when* that's justified over an index line
-and how to add one, see `HOOKS.md`.
+multiplies under fan-out. Budget: the harness keeps only a ~2KB preview
+of injections past ~10k characters, so the loader warns at ~9KB of
+entries (and past ~200 lines). **Keep promoted imperative lines at the
+top of `## Entries`** — the preview keeps the head, so top position
+preserves the always-on guarantee even when the index outgrows the
+budget. On a machine without the hook, the global CLAUDE.md carries one
+fallback line: read this file before proceeding. When a rule is
+destructive *and* mechanically matchable, a `PreToolUse` guardrail hook
+is the heavier action-point mechanism — for *when* that's justified over
+an index line and how to add one, see `HOOKS.md`.
 
 ## Maintenance
 

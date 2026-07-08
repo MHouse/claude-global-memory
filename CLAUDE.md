@@ -84,8 +84,10 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
 ## Conventions
 
 - The index (`MEMORY.md`) is a routing surface, not storage: one-line
-  entries, file kept under ~200 lines. Lead a line with the imperative
-  rule itself only for the frequent-and-costly gotchas.
+  entries, file kept under ~200 lines and its `## Entries` under ~9KB
+  (the harness truncates bigger injections to a ~2KB preview). Lead a
+  line with the imperative rule itself only for the frequent-and-costly
+  gotchas, and keep those lines at the top — the preview keeps the head.
 - Four memory types only: `user`, `feedback`, `project`, `reference`.
   Don't invent new ones in shipped examples.
 - Prose voice in docs is terse and opinionated; match it. Don't add

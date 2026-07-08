@@ -21,8 +21,13 @@
 # Keep in sync with the filter documented in BOOTSTRAP.md.
 skip_agent_types="Explore Plan"
 
-# Warn when the injected index outgrows the documented ~200-line cap
-# (README "Cost note"): routing quality decays before token cost bites.
+# Warn when the injected index outgrows its budget. Two bounds:
+#   - bytes: the harness truncates injected context past ~10k characters,
+#     keeping only a ~2KB preview -- entries below the fold lose the
+#     always-in-context guarantee (probe-measured 2026-07-08, CLI 2.1.204).
+#     Warn with margin before that. This bound usually bites first.
+#   - lines: the documented ~200-line routing-quality cap (README "Cost note").
+max_entry_bytes=9000
 max_entry_lines=200
 
 input=$(cat)
@@ -64,8 +69,14 @@ payload="Cross-project memory index -- injected from ~/.claude/memory/MEMORY.md 
 $entries"
 
 entry_lines=$(printf '%s\n' "$entries" | wc -l | tr -d '[:space:]')
-if [ "$entry_lines" -gt "$max_entry_lines" ]; then
+entry_bytes=$(printf '%s' "$entries" | wc -c | tr -d '[:space:]')
+warning=""
+if [ "$entry_bytes" -gt "$max_entry_bytes" ]; then
+    warning="WARNING: the cross-project index is ${entry_bytes} bytes; the harness keeps only a ~2KB preview of injections past ~10k characters, so entries below the fold lose the always-in-context guarantee -- trim or promote (see memory-sweep) and keep imperative lines at the top."
+elif [ "$entry_lines" -gt "$max_entry_lines" ]; then
     warning="WARNING: the cross-project index is ${entry_lines} lines (cap ~${max_entry_lines}); routing quality decays past that -- prune or promote entries (see memory-sweep)."
+fi
+if [ -n "$warning" ]; then
     payload="${warning}
 
 ${payload}"

@@ -122,7 +122,15 @@ o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME=
 if [ -z "$o" ]; then ok "loader: empty Entries -> silent"; else no "loader: empty Entries injected something"; fi
 for _i in $(seq 1 205); do printf -- '- [e%d](x.md) -- filler\n' "$_i" >> "$TH/.claude/memory/MEMORY.md"; done
 o="$(printf '%s' '{"hook_event_name":"SessionStart"}' | HOME="$TH" bash "$TH/.claude/hooks/memory-loader.sh" 2>/dev/null)"
-case "$o" in *"WARNING:"*) ok "loader: size warning past 200 entry lines";; *) no "loader: size warning missing";; esac
+case "$o" in *"lines (cap"*) ok "loader: line warning past 200 entry lines";; *) no "loader: line warning missing";; esac
+case "$o" in *"preview"*) no "loader: byte warning fired on a small-byte index";; *) ok "loader: byte warning not misfired";; esac
+# byte budget: few-but-fat lines past ~9KB -> truncation-preview warning wins
+fresh_home
+run >/dev/null
+fat="$(printf 'x%.0s' $(seq 1 380))"
+for _i in $(seq 1 25); do printf -- '- [fat%d](x.md) -- %s\n' "$_i" "$fat" >> "$TH/.claude/memory/MEMORY.md"; done
+o="$(printf '%s' '{"hook_event_name":"SessionStart"}' | HOME="$TH" bash "$TH/.claude/hooks/memory-loader.sh" 2>/dev/null)"
+case "$o" in *"preview"*) ok "loader: byte warning past ~9KB of entries";; *) no "loader: byte warning missing";; esac
 
 echo "== loader: preserves unrelated settings.json content =="
 fresh_home
