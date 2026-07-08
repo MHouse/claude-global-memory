@@ -1,10 +1,11 @@
 # claude-global-memory
 
-**Global, cross-project memory for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — the layer that survives across projects, complementing the built-in `/remember` (which is per-project). Just files plus install hygiene: no daemon, retrieval layer, auto-capture pipeline, or sync.**
+**Global, cross-project memory for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — the layer that survives across projects, complementing the built-in `/remember` (which is per-project). Just files, one small loader hook, and install hygiene: no daemon, retrieval layer, auto-capture pipeline, or sync.**
 
-Sets up a small Markdown store at `~/.claude/memory/` that every Claude
-Code session reads at startup, so durable cross-project knowledge is
-available everywhere you work, not just inside one repo. ("Global" here
+Sets up a small Markdown store at `~/.claude/memory/` whose index a
+bootstrap-installed hook injects into every Claude Code session — and
+into non-lean subagents — at startup, so durable cross-project knowledge
+is mechanically present everywhere you work, not just inside one repo. ("Global" here
 means every project on *this machine* — a local store, not a shared or
 cloud-synced one.) Claude Code already loads *per-project* memory
 automatically; this fills the gap for
@@ -35,7 +36,7 @@ in parallel after bootstrap, covering different scopes:
 | Location          | `~/.claude/projects/<slug>/memory/`| `~/.claude/memory/`                      |
 | Setup             | Zero — built into Claude Code      | One-time `./bootstrap.sh`                |
 | Opportunistic save| Yes — model saves opportunistically| Yes — model saves opportunistically      |
-| Loaded at         | Session start (per-project)        | Session start (every session)            |
+| Loaded at         | Session start (per-project, harness-injected) | Session + subagent start (hook-injected) |
 | Good for          | "This Postgres table joins weirdly to that one in *this* repo" | "Don't suggest `cp -i` on Git Bash; use `\\cp`" |
 
 Pick the layer when you save: a fact that only applies inside one project
@@ -46,13 +47,14 @@ harness-derived — each clone, worktree, and platform gets its own; the
 harness names the active directory at session start, so you never compute
 it.)
 
-**Cost note.** The index (`MEMORY.md`) loads into every session, in every
-project, by design. The binding constraint isn't token cost — it's
-*routing quality*: as the index grows, the relevance signal weakens and
-Claude starts pulling in adjacent-but-unrelated entries. Keep entries to
-one line and the file under ~200 lines (~100 entries); past that, prune
-or promote (the [`memory-sweep`](#maintenance) skill surfaces
-promotion candidates). A few high-value lines may run longer to carry an inline
+**Cost note.** The index (`MEMORY.md`) is injected into every session, in
+every project — and into every non-lean subagent, which multiplies the
+spend under heavy fan-out — by design. The binding constraint isn't token
+cost — it's *routing quality*: as the index grows, the relevance signal
+weakens and Claude starts pulling in adjacent-but-unrelated entries. Keep
+entries to one line and the file under ~200 lines (~100 entries); the
+loader warns past that, and [`memory-sweep`](#maintenance) surfaces
+promotion candidates when it's time to prune. A few high-value lines may run longer to carry an inline
 rule — see [File format](#file-format) — but that spends the same budget,
 so reserve it for the critical few.
 
@@ -65,19 +67,29 @@ borrows from them. Where it fits:
 |---|---|---|---|---|
 | [Pawel Huryn](https://substack.com/@huryn/note/c-216337711) | single `memory.md` | session-start instruction | — | — |
 | [John Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory) | dir + `memory.md` + `tools/` + `domain/` | session-start + `PreToolUse` hooks | yes (Python + shell wrapper, ~5ms / tool call) | — |
-| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | session-start instruction | none installed (opt-in; see [`HOOKS.md`](HOOKS.md)) | `name` / `description` / `type` |
+| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | mechanical injection: `SessionStart` + `SubagentStart` hooks (default-on, opt-out) | memory-loader by default; guardrails opt-in (see [`HOOKS.md`](HOOKS.md)) | `name` / `description` / `type` |
 | [claude-mem](https://github.com/thedotmack/claude-mem) | SQLite + worker daemon | hooks + MCP queries | yes | n/a |
 
-- **vs [Huryn](https://substack.com/@huryn/note/c-216337711)** — same
-  session-start instruction, plus directory structure, `type` frontmatter,
-  and a reproducible bootstrap.
+- **vs [Huryn](https://substack.com/@huryn/note/c-216337711)** — Huryn's
+  pattern loads via a session-start instruction; this repo used to as well,
+  until a postmortem showed the instruction silently not firing is the
+  dominant failure mode. It now injects mechanically via hooks, plus
+  directory structure, `type` frontmatter, and a reproducible bootstrap.
 - **vs [Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory)**
-  — same directory structure. Conneely's hook is a general always-on loader
-  that re-injects memory every session; this repo installs no hooks by default
-  (bootstrap never mutates `settings.json`) and instead treats a hook as a
-  documented, user-added exception — the admission policy and registry pattern
-  in [`HOOKS.md`](HOOKS.md). It also adds `type` frontmatter so the index routes
-  without scanning every file.
+  — same directory structure, and an honest debt: his optional Part 2 — the
+  `PreToolUse` loader most readers skipped — was the load-bearing piece all
+  along. His underlying principle, sort content by **load guarantee** rather
+  than content type, is exactly what this repo's salience design violated
+  until 2026-07: imperative index lines lived in a surface whose loading was
+  promised, never guaranteed. This repo now ships the same capability rebuilt
+  on purpose-built events: `SessionStart`/`SubagentStart` instead of
+  `PreToolUse` with a parent-PID once-per-session flag and a bash+Python
+  wrapper; the payload is the cross-project `## Entries` only (the harness
+  already injects per-project memory natively, subagents included); and
+  coverage starts at turn 1 — response-formation-time `feedback` memories
+  included — not at the first tool call. It also adds `type` frontmatter so
+  the index routes without scanning every file, and keeps guardrail hooks
+  behind the admission policy in [`HOOKS.md`](HOOKS.md).
 - **vs [claude-mem](https://github.com/thedotmack/claude-mem)** — a
   different scale entirely: pick it for auto-capture, semantic search, and
   a local worker; pick this for plain Markdown you can `cat` and audit,
@@ -131,8 +143,9 @@ Keep `name:` short and slug-like so `[[name]]` link targets stay clean rather
 than full sentences.
 
 The top-level `MEMORY.md` is the index — one-line links to the entry
-files. The index loads every session, but entries load **lazily**, only
-when one looks relevant to the task. So the index line is the only part
+files. The loader hook injects the index into every session (and every
+non-lean subagent), but entries load **lazily**, only when one looks
+relevant to the task. So the index line is the only part
 of an entry guaranteed to be in context when you act: for the few gotchas
 that are both *frequent* and *costly*, lead that line with the imperative
 rule itself, not a topic label — turning the always-loaded pointer into
@@ -200,10 +213,13 @@ cd claude-global-memory
 ```
 
 The script is idempotent — it creates `~/.claude/memory/`, seeds an empty
-`MEMORY.md` from the template, ensures `~/.claude/CLAUDE.md` exists, and
-appends the cross-project memory section if it isn't already there.
-Re-running is a no-op once the system is in place; existing customisations
-in `CLAUDE.md` are preserved.
+`MEMORY.md` from the template, ensures `~/.claude/CLAUDE.md` exists,
+appends the cross-project memory section if it isn't already there, and
+installs the memory-loader hook (the injection mechanism; `--no-loader`
+to skip, `--uninstall-loader` to remove — see
+[BOOTSTRAP.md](BOOTSTRAP.md)). Re-running is a no-op once the system is
+in place; existing customisations in `CLAUDE.md` and everything else in
+`settings.json` are preserved.
 
 ### Keeping in sync when this repo updates
 
@@ -251,11 +267,14 @@ cross-store **promotion**. `closeout` defers deep, cross-store work to
   existing `Read` / `Edit` / `Write` tools — no new tool surface, no
   background process, no opaque store. Want auto-capture or retrieval
   embeddings? Pick a different tool.
-- **Install hooks or edit `settings.json`.** Bootstrap writes only Markdown —
-  the memory store, an empty hooks *registry*, and (only with the opt-in
-  `--install-skills` flag, default off) copies of the bundled maintenance
-  skills. It never installs a hook or touches `settings.json`. Hooks
-  are a documented, opt-in exception you add by hand following
+- **Install hooks beyond the loader, or touch `settings.json` for anything
+  else.** Bootstrap installs exactly one hook — the memory-loader, the
+  layer's load mechanism (default-on, opt-out, cleanly uninstallable) — and
+  edits `settings.json` only for its two registration blocks, merged with a
+  real JSON parser so everything else in the file is preserved. Beyond that:
+  Markdown only — the memory store, the hooks *registry*, and (opt-in,
+  `--install-skills`) the bundled maintenance skills. Guardrail hooks remain
+  a documented, opt-in exception you add by hand following
   [`HOOKS.md`](HOOKS.md).
 - **Ship anyone's actual memories.** Memories are personal and
   machine-local; this repo only carries the scaffold.

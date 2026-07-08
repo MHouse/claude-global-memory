@@ -34,7 +34,23 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   - `~/.claude/CLAUDE.md`: bootstrap owns only the `## Cross-project
     memory` H2 section; never touches anything outside it.
   - `~/.claude/hooks/REGISTRY.md`: bootstrap owns everything **above**
-    `## Registered hooks`; never touches the rows below.
+    `## Registered hooks`; never touches the rows below — except the single
+    row whose first cell is `memory-loader`, which bootstrap itself adds on
+    install and removes on `--uninstall-loader`.
+  - `~/.claude/hooks/memory-loader.sh`: **whole-file** surface with a
+    `.delivered` stamp, installed **by default** (`--no-loader` / `-NoLoader`
+    skips this run). One deliberate divergence from skill semantics: an
+    unmodified-but-stale copy auto-updates on a bare run (the stamp proves no
+    user edit is lost); an edited copy still requires `--force`.
+  - `~/.claude/settings.json`: bootstrap owns exactly the two memory-loader
+    registration blocks under `hooks.SessionStart` / `hooks.SubagentStart`
+    (identified by the command containing `/hooks/memory-loader.sh`).
+    Everything else — keys, events, sibling entries — is preserved. The merge
+    always goes through a real JSON parser (python in bootstrap.sh, native in
+    bootstrap.ps1), never text-munging; writes are build→validate→atomic-
+    rename; an unparseable file is never touched. `--uninstall-loader` /
+    `-UninstallLoader` is sticky (drops a `.memory-loader.optout` sentinel
+    honored by bare re-runs; `--install-loader` / `-InstallLoader` clears it).
   - Each managed region carries an HTML-comment marker as the ownership
     boundary. The canonical section content is
     `snippets/cross-project-memory-claude-md.md`, appended verbatim — if
@@ -50,14 +66,17 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
     automatic), and bootstrap refuses to write through a symlink/junction at
     that path. `--uninstall-skills` removes them. Add a skill by dropping
     `skills/<name>/SKILL.md` and listing `<name>` in the registry.
-- **Never install hooks or write `settings.json`.** This prohibition is
-  absolute — the scaffold installs no hooks and never touches `settings.json`.
-  Hooks are a documented, opt-in exception users add by hand, governed by the
-  admission policy in `HOOKS.md` and logged in `~/.claude/hooks/REGISTRY.md`.
-  Bootstrap writes only Markdown: the memory store, the empty hooks registry,
-  and — only with the explicit opt-in `--install-skills` flag — copies of the
-  bundled skill files. It never installs a hook or mutates `settings.json` to
-  do any of that.
+- **The memory-loader is the only hook bootstrap installs, and its two
+  registrations are the only `settings.json` writes.** The loader is the
+  cross-project layer's load mechanism (HOOKS.md, "The load-bearing
+  exception") — default-on, opt-out, cleanly and stickily uninstallable per
+  the settings.json bullet above. Nothing else may install a hook or touch
+  `settings.json`: guardrail hooks remain a documented, user-added exception
+  governed by the admission policy in `HOOKS.md` and logged in
+  `~/.claude/hooks/REGISTRY.md`. Everything else bootstrap writes is
+  Markdown: the memory store, the hooks registry, and — only with the
+  explicit opt-in `--install-skills` flag — copies of the bundled skill
+  files.
 - **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md, the
   templates, and the bootstrap scripts describe one system. A behavior
   change in the scripts usually needs a doc change too.
@@ -82,8 +101,9 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   detection, since there's no app to run. The bundled harness automates
   exactly that — run **both** `bash test/verify.sh` and
   `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
-  (CI also runs both on every PR; they cover the managed surfaces + the closeout
-  matrix and are kept in lockstep, same as the two bootstrap scripts).
+  (CI also runs both on every PR; they cover the managed surfaces, the
+  memory-loader contract, + the per-skill matrix and are kept in lockstep,
+  same as the two bootstrap scripts).
 
 ## Deploy Configuration
 

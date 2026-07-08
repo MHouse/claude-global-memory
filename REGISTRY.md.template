@@ -1,14 +1,18 @@
 <!-- Preamble managed by the claude-global-memory bootstrap (re-run with -Force / --force to resync).
-     Rows under '## Registered hooks' are per-machine; edit freely. -->
+     Rows under '## Registered hooks' are per-machine; edit freely -- except the
+     'memory-loader' row, which bootstrap itself adds and removes. -->
 
 # Hooks registry
 
-This machine's `PreToolUse`/event hooks. **The claude-global-memory scaffold
-installs no hooks and never edits `settings.json`** — this ledger only tracks
-hooks you add yourself.
+This machine's hook ledger. The claude-global-memory scaffold installs exactly
+one hook by default — the **memory-loader**, the cross-project memory layer's
+load mechanism (see `HOOKS.md`, "The load-bearing exception") — and touches
+`settings.json` only for its two registrations. Bootstrap manages that hook's
+row below (adds it on install, removes it on uninstall); every other row
+tracks a hook you added yourself and is never touched.
 
 A hook is integration plumbing, governed like code, not a memory entry. Before
-adding one it must clear the admission policy in
+adding a guardrail hook it must clear the admission policy in
 [`HOOKS.md`](https://github.com/MHouse/claude-global-memory/blob/main/HOOKS.md)
 (all six points + a postmortem). Adding a hook is a 3-step manual recipe
 (script + `settings.json` block + a row below); removing one reverses all three.

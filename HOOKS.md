@@ -1,16 +1,55 @@
-# Hooks: the rare justified exception
+# Hooks: the load-bearing loader, and the rare guardrail exception
 
-**This scaffold installs no hooks and never edits `settings.json`.** The default
-way to raise the salience of a memory is an *imperative index line* (see
-`MEMORY.md.template` → "Index-line salience"). A `PreToolUse` hook is the
-heavier alternative, reserved for the few cases where an index line provably
-can't do the job at the moment of need.
+**This scaffold ships exactly one hook — the memory-loader — and bootstrap
+touches `settings.json` only to register it.** Everything else stays out: the
+default way to raise the salience of a memory is an *imperative index line*
+(see `MEMORY.md.template` → "Index-line salience"). A `PreToolUse` guardrail
+hook is the heavier alternative, reserved for the few cases where an index
+line provably can't do the job at the moment of need.
 
-This file documents *when* a hook is justified, *how* to add one safely, and how
-to keep the ledger (`~/.claude/hooks/REGISTRY.md`, seeded by bootstrap). A hook
-is **integration plumbing, governed like code** — not a memory entry.
+This file documents the loader (and why it's a different category), *when* a
+guardrail hook is justified, *how* to add one safely, and how to keep the
+ledger (`~/.claude/hooks/REGISTRY.md`, seeded by bootstrap). A hook is
+**integration plumbing, governed like code** — not a memory entry.
 
-## When a hook is allowed (admission policy)
+## The load-bearing exception: the memory-loader
+
+The loader is not a guardrail; it is the cross-project layer's **load
+mechanism**. Before it existed, loading the index depended on a CLAUDE.md
+instruction — model-followed, probabilistic — while the per-project layer is
+harness-injected — mechanical. A 2026-07 postmortem documents the failure
+class that asymmetry produces: a session never loaded the index, so an
+imperative index line written for exactly the command that then failed never
+got its chance. Sorting content by load *guarantee* rather than content type
+(credit: Conneely) means the index's guarantee has to be mechanical too.
+
+So bootstrap installs `~/.claude/hooks/memory-loader.sh` **by default** and
+registers it under both **SessionStart** (main sessions: startup / resume /
+clear / compact) and **SubagentStart** (subagents inherit CLAUDE.md but *not*
+SessionStart output; the script skips the lean, read-only Explore and Plan
+agent types). It injects the `## Entries` section of
+`~/.claude/memory/MEMORY.md` — one script, two registrations, empirically
+verified to reach both main-session and subagent context (2026-07-07, CLI
+2.1.204). `--no-loader` skips it, `--uninstall-loader` removes it cleanly;
+see BOOTSTRAP.md.
+
+What makes it a distinct category from every hook below:
+
+- **It carries no facts.** It injects the index verbatim; the index stays the
+  single source of truth, so the admission policy's duplication concerns
+  don't arise.
+- **It's infrastructure, not enforcement.** Removing it reverts the layer to
+  instruction-based loading (the CLAUDE.md fallback line) — it doesn't make
+  anything safer or less safe at an action point.
+- **It is the one `settings.json` touch.** Bootstrap merges the two
+  registration blocks with a real JSON parser, preserves every other key,
+  event, and entry, refuses to touch an unparseable file, and removes exactly
+  its own blocks on uninstall. Guardrail hooks remain hand-added.
+- **It still gets a ledger row** (the one row bootstrap manages itself), with
+  removal criteria like any other hook: gone the day the harness injects
+  cross-project memory natively.
+
+## When a guardrail hook is allowed (admission policy)
 
 Before adding a hook, **all six** must hold — otherwise sharpen the index line
 instead:
@@ -24,10 +63,13 @@ instead:
    runbook (point at the owning memory file for the rest).
 4. **Named source of truth + intentional duplication** — the owning memory file
    is canon; the hook's copy is a deliberate duplicate, flagged to keep in sync.
-5. **No general mechanism would enforce it at the right moment** — a blanket
-   session-start loader that only re-injects the index does NOT count. If the
-   failure is "didn't dereference the right entry at the action point," a
-   broader loader is a placebo.
+5. **No general mechanism would enforce it at the right moment** — with the
+   memory-loader in place, the index line is already in context; if the
+   failure was "the index never loaded," that's the loader's job, and it's
+   fixed. A guardrail is justified only for the residual class: the line was
+   in context and the agent still didn't dereference or apply it at the
+   action point. For that class a broader loader is a placebo — enforcement
+   has to sit on the tool call itself.
 6. **Reviewed as infrastructure, not memory** — governed like code, with a
    removal criterion.
 
@@ -62,6 +104,13 @@ routing can't reliably solve it at the moment of need. Every hook gets a row in
 - **To inject context**, print exactly one line of JSON to stdout:
   `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"…"}}`.
   Exit 0. (Exit 2 blocks the tool; only stderr is read then.)
+- **Settings-level `PreToolUse` hooks fire for subagent tool calls too**
+  (probe-verified 2026-07-07): a guardrail registered in
+  `~/.claude/settings.json` sees the same command issued inside a spawned
+  subagent, payload tagged with an `agent_id`. So if a post-loader miss ever
+  justifies a guardrail, it covers subagents at the action point as well.
+  (SessionStart does *not* fire for subagents — SubagentStart is the
+  subagent-side lifecycle event; the memory-loader uses both.)
 - **Hooks hot-reload** — editing `settings.json` takes effect on the next tool
   call, no restart.
 

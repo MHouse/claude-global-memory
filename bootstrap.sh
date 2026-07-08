@@ -10,11 +10,20 @@
 #   3. Creates ~/.claude/CLAUDE.md with a minimal header if absent.
 #   4. Appends the cross-project memory section if absent. If present,
 #      compares the section body against the snippet and reports drift.
-#   5. Seeds ~/.claude/hooks/REGISTRY.md (an empty hooks ledger) from
-#      REGISTRY.md.template if absent; else drift-checks its preamble. This
-#      is plain Markdown -- NOT a hook, never mutates settings.json. The
-#      scaffold installs no hooks.
-#   6. ONLY with --install-skills: copies the bundled skills (closeout,
+#   5. Seeds ~/.claude/hooks/REGISTRY.md (a hooks ledger) from
+#      REGISTRY.md.template if absent; else drift-checks its preamble.
+#   6. Installs the memory-loader hook (default ON): copies
+#      hooks/memory-loader.sh to ~/.claude/hooks/ and registers it in
+#      ~/.claude/settings.json under SessionStart + SubagentStart. This is
+#      the ONE place bootstrap touches settings.json: the loader's two
+#      registration blocks, merged with a real JSON parser; every other key,
+#      event, and entry is preserved. The loader injects the '## Entries' of
+#      ~/.claude/memory/MEMORY.md into main sessions and non-lean subagents
+#      (the script itself skips Explore and Plan). --no-loader skips this
+#      run; --uninstall-loader removes it all and opts out of future bare
+#      runs; --install-loader opts back in. Also keeps one bootstrap-managed
+#      row (first cell 'memory-loader') in the hooks ledger.
+#   7. ONLY with --install-skills: copies the bundled skills (closeout,
 #      memory-sweep) to ~/.claude/skills/<name>/SKILL.md (whole-file
 #      managed surfaces, each with a .delivered stamp so a stale-but-unmodified
 #      copy is told apart from an edited one). Default off. Names may follow the
@@ -24,11 +33,18 @@
 # Drift = file's managed region differs from canonical content in this
 # repo. Default: report with a diff, do not modify. Re-run with --force
 # to rewrite drifted regions; customisations inside them are lost,
-# customisations outside them are preserved.
+# customisations outside them are preserved. (One exception: an installed
+# memory-loader.sh whose stamp proves it was never hand-edited auto-updates
+# on a bare run -- load-bearing infrastructure, no user content at risk.)
 #
 # Flags:
 #   --force                Rewrite drifted managed regions with canonical content.
 #   --dry-run              Report intended actions, write nothing.
+#   --no-loader            Skip memory-loader hook management for this run.
+#   --install-loader       Re-enable the memory-loader after --uninstall-loader.
+#   --uninstall-loader     Remove the memory-loader hook, its settings.json
+#                          registrations, and its ledger row; stays off on
+#                          future bare runs until --install-loader.
 #   --install-skills [names]    Install bundled skills to ~/.claude/skills/ (omit names for all).
 #   --uninstall-skills [names]  Remove installed bundled skills (omit names for all).
 #   -h, --help   Show usage.
@@ -37,6 +53,9 @@ set -euo pipefail
 
 force=0
 dry_run=0
+no_loader=0
+install_loader=0
+uninstall_loader=0
 install_skills=0
 uninstall_skills=0
 skill_filter=()
@@ -49,6 +68,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --force)   force=1; shift ;;
         --dry-run) dry_run=1; shift ;;
+        --no-loader)        no_loader=1; shift ;;
+        --install-loader)   install_loader=1; shift ;;
+        --uninstall-loader) uninstall_loader=1; shift ;;
         --install-skills)
             install_skills=1; shift
             while [[ $# -gt 0 && "$1" != -* ]]; do skill_filter+=("$1"); shift; done
@@ -72,6 +94,11 @@ snippet="${repo_root}/snippets/cross-project-memory-claude-md.md"
 hooks_dir="${claude_home}/hooks"
 registry="${hooks_dir}/REGISTRY.md"
 registry_template="${repo_root}/REGISTRY.md.template"
+settings_json="${claude_home}/settings.json"
+loader_source="${repo_root}/hooks/memory-loader.sh"
+loader_target="${hooks_dir}/memory-loader.sh"
+loader_stamp="${hooks_dir}/.memory-loader.delivered"
+loader_optout="${hooks_dir}/.memory-loader.optout"
 skills_dir="${claude_home}/skills"
 # Bundled skills shipped by this repo, installed on demand (see --install-skills).
 # Add a skill by dropping skills/<name>/SKILL.md and listing <name> here.
@@ -80,6 +107,7 @@ bundled_skills=("closeout" "memory-sweep")
 [ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$registry_template" ] || { echo "Registry template not found at $registry_template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
+[ -f "$loader_source" ] || { echo "Loader hook source not found at $loader_source -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 
 # Normalize: strip CR, strip trailing whitespace per line, strip trailing blank lines.
 normalize() {
@@ -195,6 +223,9 @@ replace_preamble() {
 # LOCKSTEP PARITY (bootstrap.sh <-> bootstrap.ps1): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
+#   - memory-loader (default-on): script install + stamp + auto-update of
+#     unmodified-stale copies, the two-event settings.json merge/uninstall,
+#     the ledger row, and the sticky opt-out
 #   - bundled skills (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / --force + re-install resync
 # Verify BOTH scripts after a change: `bash test/verify.sh` AND
@@ -296,8 +327,8 @@ else
     fi
 fi
 
-# 5. Hooks registry. Markdown ledger ONLY -- this is never a hook and never
-#    mutates settings.json; the scaffold installs no hooks (see HOOKS.md).
+# 5. Hooks registry. Markdown ledger; the memory-loader (step 6) is the only
+#    hook this scaffold installs (see HOOKS.md).
 if [ ! -d "$hooks_dir" ]; then
     if [[ "$dry_run" -eq 0 ]]; then
         mkdir -p "$hooks_dir"
@@ -333,7 +364,350 @@ else
     fi
 fi
 
-# 6. Bundled skills (opt-in). Each is a whole-file managed surface, distinct
+# Portable SHA-256: coreutils `sha256sum` (Linux, Git Bash) or `shasum -a 256`
+# (macOS, which ships no sha256sum). Same digest either way. Shared by the
+# memory-loader (step 6) and the bundled skills (step 7).
+_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+# printf '%s' "$(...)" drops the trailing newline so this matches the PowerShell
+# Get-NormalizedHash (which joins lines with no trailing newline) byte-for-byte.
+normalized_hash() { printf '%s' "$(normalize "$1")" | _sha256 | awk '{print $1}'; }
+
+# 6. Memory-loader hook (default ON; see HOOKS.md "The load-bearing exception").
+#    Three surfaces, managed together:
+#      (a) ~/.claude/hooks/memory-loader.sh -- whole-file surface with a
+#          .delivered stamp, like the bundled skills, EXCEPT an
+#          unmodified-but-stale copy auto-updates on a bare run: the bare run
+#          is the loader's install gesture, and the stamp proves no user edit
+#          is lost. Hand-edited copies still require --force.
+#      (b) ~/.claude/settings.json -- the ONE place bootstrap touches it: two
+#          registration blocks (hooks.SessionStart + hooks.SubagentStart),
+#          merged with a real JSON parser (python3/python), identified by the
+#          command containing /hooks/memory-loader.sh. Everything else in the
+#          file is preserved; an unparseable file is never touched (WARN +
+#          manual instructions). Build-validate-atomic-rename, never in-place.
+#      (c) ~/.claude/hooks/REGISTRY.md -- one bootstrap-managed ledger row
+#          (first cell 'memory-loader'): added if missing, removed on
+#          --uninstall-loader, other rows never touched.
+#    --uninstall-loader is sticky (drops .memory-loader.optout) so a later
+#    bare re-run doesn't silently resurrect the hook; --install-loader
+#    re-enables. --no-loader skips loader management for this run only.
+
+# The registration command string. Absolute path (HOOKS.md: ~ is not reliably
+# expanded in settings.json command strings); double quotes so paths with
+# spaces survive every shell; forward slashes on Windows (cygpath -m) so the
+# same string comes out of bootstrap.sh under Git Bash and bootstrap.ps1.
+loader_cmd_path="$loader_target"
+if command -v cygpath >/dev/null 2>&1; then
+    loader_cmd_path="$(cygpath -m "$loader_target")"
+fi
+loader_cmd="bash \"${loader_cmd_path}\""
+
+# Flag-neutral so bootstrap.sh and bootstrap.ps1 emit the identical row.
+loader_registry_row='| memory-loader | SessionStart + SubagentStart (no matcher) | main-session start/resume/clear/compact + non-lean subagent spawn (script skips Explore, Plan) | the ## Entries section of ~/.claude/memory/MEMORY.md | the index itself | harness injects cross-project memory natively, or uninstall via bootstrap (--uninstall-loader / -UninstallLoader) |'
+
+# A real JSON parser for the settings merge -- never text-munge settings.json.
+# The Windows Store python stub exits non-zero on -c, so probe with a real run.
+py_bin=""
+for _py in python3 python; do
+    if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import json' >/dev/null 2>&1; then
+        py_bin="$_py"
+        break
+    fi
+done
+
+settings_merge() {
+    # $1 = check | ensure | remove. Prints one status token:
+    #   check  -> ok | absent | partial | drift | invalid
+    #   ensure | remove -> changed | unchanged | invalid
+    "$py_bin" - "$settings_json" "$loader_cmd" "$1" <<'PYEOF'
+import json, os, sys, tempfile
+
+path, cmd, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+EVENTS = ("SessionStart", "SubagentStart")
+IDENT = "/hooks/memory-loader.sh"
+
+def canonical():
+    return {"hooks": [{"type": "command", "command": cmd, "timeout": 10}]}
+
+def is_ours(entry):
+    # Either slash style, in case of an old hand-added registration.
+    if not isinstance(entry, dict):
+        return False
+    hooks = entry.get("hooks")
+    if not isinstance(hooks, list):
+        return False
+    return any(
+        isinstance(h, dict) and IDENT in (h.get("command") or "").replace("\\", "/")
+        for h in hooks
+    )
+
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read()
+    except OSError:
+        print("invalid")
+        sys.exit(0)
+    if text.strip():
+        try:
+            data = json.loads(text)
+        except ValueError:
+            print("invalid")
+            sys.exit(0)
+        if not isinstance(data, dict):
+            print("invalid")
+            sys.exit(0)
+
+hooks = data.get("hooks")
+if hooks is None:
+    hooks = {}
+if not isinstance(hooks, dict) or any(
+    not isinstance(hooks.get(ev), (list, type(None))) for ev in EVENTS
+):
+    print("invalid")
+    sys.exit(0)
+
+if mode == "check":
+    states = []
+    for ev in EVENTS:
+        arr = hooks.get(ev) or []
+        ours = [e for e in arr if is_ours(e)]
+        if not ours:
+            states.append("absent")
+        elif len(ours) == 1 and ours[0] == canonical():
+            states.append("ok")
+        else:
+            states.append("drift")
+    if "drift" in states:
+        print("drift")
+    elif states == ["ok", "ok"]:
+        print("ok")
+    elif states == ["absent", "absent"]:
+        print("absent")
+    else:
+        print("partial")
+    sys.exit(0)
+
+changed = False
+for ev in EVENTS:
+    arr = hooks.get(ev) or []
+    kept = [e for e in arr if not is_ours(e)]
+    ours = [e for e in arr if is_ours(e)]
+    if mode == "ensure":
+        if len(ours) == 1 and ours[0] == canonical() and ev in hooks:
+            continue
+        hooks[ev] = kept + [canonical()]
+        changed = True
+    else:  # remove
+        if not ours:
+            continue
+        changed = True
+        if kept:
+            hooks[ev] = kept
+        elif ev in hooks:
+            del hooks[ev]
+
+if mode == "ensure":
+    data["hooks"] = hooks
+elif changed and not hooks and "hooks" in data:
+    del data["hooks"]
+
+if not changed:
+    print("unchanged")
+    sys.exit(0)
+
+parent = os.path.dirname(path) or "."
+fd, tmp = tempfile.mkstemp(prefix=".settings.tmp.", dir=parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+except BaseException:
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    raise
+print("changed")
+PYEOF
+}
+
+loader_write() {
+    [[ "$dry_run" -eq 1 ]] && return 0
+    mkdir -p "$hooks_dir"
+    # Temp in the SAME dir as the target so the mv is an atomic rename.
+    local tmp
+    tmp="$(mktemp "${hooks_dir}/.memory-loader.tmp.XXXXXX")"
+    cp "$loader_source" "$tmp" && mv "$tmp" "$loader_target"
+    [ -s "$loader_target" ] || { echo "Loader install wrote an empty file at $loader_target" >&2; exit 1; }
+    normalized_hash "$loader_source" > "$loader_stamp"
+}
+
+register_loader() {
+    if [ -z "$py_bin" ]; then
+        note "  WARN      $settings_json (python3/python not found; cannot merge JSON safely -- add the memory-loader registration by hand, see BOOTSTRAP.md)"
+        return 0
+    fi
+    local status existed
+    status="$(settings_merge check)"
+    case "$status" in
+        ok)
+            note "  exists    $settings_json (memory-loader registered)"
+            ;;
+        invalid)
+            note "  WARN      $settings_json (not valid JSON; not touching it -- add the memory-loader registration by hand, see BOOTSTRAP.md)"
+            ;;
+        absent|partial)
+            existed=0; [ -f "$settings_json" ] && existed=1
+            if [[ "$dry_run" -eq 1 ]]; then
+                echo "  [dry-run] would: register memory-loader in $settings_json (SessionStart + SubagentStart)"
+            else
+                settings_merge ensure >/dev/null
+            fi
+            if [[ "$existed" -eq 1 ]]; then
+                note "  appended  memory-loader registration to $settings_json"
+            else
+                note "  created   $settings_json (memory-loader registered under SessionStart + SubagentStart)"
+            fi
+            ;;
+        drift)
+            if [[ "$force" -eq 1 ]]; then
+                if [[ "$dry_run" -eq 0 ]]; then
+                    settings_merge ensure >/dev/null
+                fi
+                note "  synced    $settings_json (memory-loader registration replaced)"
+            else
+                note "  DRIFT     $settings_json (memory-loader registration differs from canonical; re-run with --force to sync)"
+                drift_reported=1
+            fi
+            ;;
+    esac
+}
+
+registry_row_present() { [ -f "$registry" ] && grep -q '^| memory-loader |' "$registry"; }
+
+add_registry_row() {
+    [ -f "$registry" ] || return 0
+    has_marker "$registry" '^## Registered hooks[[:space:]]*$' || return 0
+    registry_row_present && return 0
+    if [[ "$dry_run" -eq 1 ]]; then
+        echo "  [dry-run] would: append memory-loader row to $registry"
+    else
+        if [ -s "$registry" ] && [ -n "$(tail -c 1 "$registry")" ]; then
+            printf '\n' >> "$registry"
+        fi
+        printf '%s\n' "$loader_registry_row" >> "$registry"
+    fi
+    note "  appended  memory-loader row to $registry"
+}
+
+remove_registry_row() {
+    registry_row_present || return 0
+    if [[ "$dry_run" -eq 0 ]]; then
+        local tmp
+        tmp="$(mktemp)"
+        grep -v '^| memory-loader |' "$registry" > "$tmp" || true
+        mv "$tmp" "$registry"
+    fi
+    note "  removed   memory-loader row from $registry"
+}
+
+manage_loader() {
+    local status
+    if [[ "$uninstall_loader" -eq 1 ]]; then
+        if [ -f "$settings_json" ]; then
+            if [ -z "$py_bin" ]; then
+                note "  WARN      $settings_json (python3/python not found; remove the memory-loader registration by hand, see BOOTSTRAP.md)"
+            else
+                status="$(settings_merge check)"
+                if [ "$status" = "invalid" ]; then
+                    note "  WARN      $settings_json (not valid JSON; remove the memory-loader registration by hand, see BOOTSTRAP.md)"
+                elif [ "$status" != "absent" ]; then
+                    if [[ "$dry_run" -eq 1 ]]; then
+                        echo "  [dry-run] would: remove memory-loader registration from $settings_json"
+                    else
+                        settings_merge remove >/dev/null
+                    fi
+                    note "  removed   memory-loader registration from $settings_json"
+                fi
+            fi
+        fi
+        if [ -L "$loader_target" ]; then
+            if [[ "$dry_run" -eq 0 ]]; then rm -f "$loader_target"; fi
+            note "  removed   $loader_target (memory-loader symlink/junction removed; target left untouched)"
+        elif [ -e "$loader_target" ]; then
+            if [[ "$dry_run" -eq 0 ]]; then rm -f "$loader_target" "$loader_stamp"; fi
+            note "  removed   $loader_target (memory-loader uninstalled)"
+        else
+            note "  skip      memory-loader hook (not installed)"
+        fi
+        remove_registry_row
+        if [[ "$dry_run" -eq 0 ]]; then
+            mkdir -p "$hooks_dir"
+            : > "$loader_optout"
+        fi
+        note "  created   $loader_optout (bare re-runs stay opted out; --install-loader re-enables)"
+        return 0
+    fi
+
+    if [[ "$no_loader" -eq 1 ]]; then
+        note "  skip      memory-loader hook (--no-loader)"
+        return 0
+    fi
+
+    if [ -e "$loader_optout" ]; then
+        if [[ "$install_loader" -eq 1 ]]; then
+            if [[ "$dry_run" -eq 0 ]]; then rm -f "$loader_optout"; fi
+        else
+            note "  skip      memory-loader hook (opted out; --install-loader to re-enable)"
+            return 0
+        fi
+    fi
+
+    if [ -L "$loader_target" ]; then
+        note "  WARN      $loader_target is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return 0
+    fi
+
+    # (a) the hook script itself
+    if [ ! -e "$loader_target" ]; then
+        loader_write
+        note "  created   $loader_target (memory-loader hook installed)"
+    else
+        local src_hash inst_hash stamp_hash
+        src_hash="$(normalized_hash "$loader_source")"
+        inst_hash="$(normalized_hash "$loader_target")"
+        if [[ "$src_hash" == "$inst_hash" ]]; then
+            note "  exists    $loader_target (in sync)"
+        else
+            stamp_hash=""
+            [ -f "$loader_stamp" ] && stamp_hash="$(tr -d '[:space:]' < "$loader_stamp")"
+            if [ -n "$stamp_hash" ] && [ "$stamp_hash" == "$inst_hash" ]; then
+                # Unmodified since we wrote it: auto-update (see block comment).
+                loader_write
+                note "  synced    $loader_target (updated to current version)"
+            elif [[ "$force" -eq 1 ]]; then
+                loader_write
+                note "  synced    $loader_target (overwrote modified copy)"
+            else
+                note "  DRIFT     $loader_target (differs and looks edited; --force overwrites your changes)"
+                drift_reported=1
+            fi
+        fi
+    fi
+
+    # (b) settings.json registrations
+    register_loader
+
+    # (c) ledger row
+    add_registry_row
+}
+
+manage_loader
+
+# 7. Bundled skills (opt-in). Each is a whole-file managed surface, distinct
 #    from the region-based ones above: bootstrap owns the entire SKILL.md,
 #    installs it only on --install-skills, and re-syncs only on demand (--force,
 #    or an --install-skills re-run for an unmodified-but-stale copy). A
@@ -341,12 +715,7 @@ fi
 #    stale copy the user never touched is told apart from one they edited. Never
 #    writes THROUGH a symlink/junction (that would clobber the link's target).
 #    The same logic runs for every skill in $bundled_skills via manage_skill.
-# Portable SHA-256: coreutils `sha256sum` (Linux, Git Bash) or `shasum -a 256`
-# (macOS, which ships no sha256sum). Same digest either way.
-_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
-# printf '%s' "$(...)" drops the trailing newline so this matches the PowerShell
-# Get-NormalizedHash (which joins lines with no trailing newline) byte-for-byte.
-normalized_hash() { printf '%s' "$(normalize "$1")" | _sha256 | awk '{print $1}'; }
+#    (_sha256 / normalized_hash are defined above, shared with the loader.)
 
 # Is $1 selected by the optional skill filter? Empty filter = all bundled skills.
 skill_selected() {

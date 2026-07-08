@@ -1,0 +1,3 @@
+# Shell scripts must check out LF everywhere: the memory-loader hook is
+# installed by copying the checked-out file, and bash chokes on CRLF.
+*.sh text eol=lf
