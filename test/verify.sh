@@ -112,6 +112,13 @@ elif printf '%s' "$o" | "$py" -c "import json,sys; d=json.load(sys.stdin); h=d['
 else
   no "loader: general-purpose payload invalid JSON or missing entry"
 fi
+if [ -n "$py" ]; then
+  if printf '%s' "$o" | "$py" -c "import json,sys; c=json.load(sys.stdin)['hookSpecificOutput']['additionalContext']; assert c.splitlines()[-1].startswith('INDEX-END (')" >/dev/null 2>&1; then
+    ok "loader: payload ends with the INDEX-END sentinel"
+  else
+    no "loader: INDEX-END sentinel missing from payload tail"
+  fi
+fi
 o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$hook")"
 case "$o" in *"Cross-project memory index"*) ok "loader: SessionStart payload present";; *) no "loader: SessionStart payload missing";; esac
 
@@ -194,6 +201,16 @@ out="$(run --force)"
 has    "loader: --force replaced registration" "$out" "memory-loader registration replaced"
 json_ok "loader: registration canonical again" "$TH/.claude/settings.json" \
   "assert all(e['hooks'][0]['timeout']==10 for ev in ('SessionStart','SubagentStart') for e in d['hooks'][ev])"
+
+echo "== loader: warning constants stay in lockstep with the docs =="
+# The bounds live in the hook script; every doc that states them must move
+# when they move. If a grep here fails after you changed a constant, update
+# the listed files AND these needles.
+if grep -q '^max_entry_bytes=9000$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook byte bound is 9000"; else no "constants: hook byte bound changed -- update docs + these greps"; fi
+if grep -q '^max_entry_lines=200$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook line bound is 200"; else no "constants: hook line bound changed -- update docs + these greps"; fi
+for _doc in BOOTSTRAP.md README.md MEMORY.md.template CLAUDE.md skills/memory-sweep/SKILL.md skills/closeout/SKILL.md; do
+  if grep -Eq '~9(KB|,000)' "$repo_root/$_doc"; then ok "constants: $_doc states the ~9KB bound"; else no "constants: $_doc missing the ~9KB bound"; fi
+done
 
 echo "== loader: unparseable settings.json never touched =="
 fresh_home

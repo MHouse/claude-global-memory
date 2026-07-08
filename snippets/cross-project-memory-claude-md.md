@@ -20,8 +20,9 @@ into main sessions (startup/resume/clear/compact) and non-lean
 subagents alike, the same load guarantee the per-project layer gets.
 Index lines are pointers: read the linked entry file under
 `~/.claude/memory/` before acting on one. Fallback: if no such block is
-present in context, read `~/.claude/memory/MEMORY.md` before
-proceeding. This cross-project layer coexists with the per-project
+present in context — or the block lacks its final `INDEX-END` line,
+meaning the injection was truncated — read `~/.claude/memory/MEMORY.md`
+before proceeding. This cross-project layer coexists with the per-project
 auto-memory — separate scope, same file format and `type` frontmatter;
 the same fact doesn't live in both layers, and the save threshold below
 routes between them.
