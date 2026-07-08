@@ -2,8 +2,10 @@
 # Manual verification harness for bootstrap.sh.
 #
 # Runs the BOOTSTRAP.md recipe against a throwaway HOME and asserts: the
-# managed-surface idempotency + drift-detection + --force resync contract, and
-# the full opt-in per-skill matrix (closeout + memory-sweep). This is the repo's manual test convention
+# managed-surface idempotency + drift-detection + --force resync contract, the
+# memory-loader contract (default-on install, surgical settings.json merge,
+# agent-type filter, sticky uninstall), and the full opt-in per-skill matrix
+# (closeout + memory-sweep). This is the repo's manual test convention
 # (no CI, no app) made runnable. Run it by hand before landing a bootstrap
 # change:  bash test/verify.sh
 #
@@ -61,6 +63,137 @@ has    "drift: MEMORY.md preamble drift reported" "$out" "DRIFT     $TH/.claude/
 out="$(run --force)"
 has    "force: MEMORY.md synced" "$out" "synced    $TH/.claude/memory/MEMORY.md"
 if grep -qF "[my entry](x.md)" "$TH/.claude/memory/MEMORY.md"; then ok "force: user entry below ## Entries preserved"; else no "force: user entry was clobbered"; fi
+
+# ---- memory-loader (default-on) ----------------------------------------------
+# Mirrors the loader block in verify.ps1 -- keep the two in sync. JSON asserts
+# pipe the file through python ON STDIN so a Windows-native python under local
+# Git Bash (which can't open /tmp msys paths) behaves the same as Linux CI.
+py=""
+for _c in python3 python; do
+  if command -v "$_c" >/dev/null 2>&1 && "$_c" -c 'import json' >/dev/null 2>&1; then py="$_c"; break; fi
+done
+json_ok() { # $1 = label, $2 = json file, $3 = python statements over parsed d
+  if [ -z "$py" ]; then printf '  SKIP  %s (no python for JSON asserts)\n' "$1"; return 0; fi
+  if "$py" -c "import json,sys; d=json.load(sys.stdin); $3" < "$2" >/dev/null 2>&1; then ok "$1"; else no "$1"; fi
+}
+
+echo "== loader: fresh install (default-on) =="
+fresh_home
+out="$(run)"
+file   "loader: script installed"       "$TH/.claude/hooks/memory-loader.sh"
+file   "loader: stamp present"          "$TH/.claude/hooks/.memory-loader.delivered"
+file   "loader: settings.json created"  "$TH/.claude/settings.json"
+has    "loader: registration reported"  "$out" "memory-loader registered under SessionStart + SubagentStart"
+has    "loader: ledger row appended"    "$out" "appended  memory-loader row"
+json_ok "loader: valid JSON, both events, one entry each" "$TH/.claude/settings.json" \
+  "assert len(d['hooks']['SessionStart'])==1 and len(d['hooks']['SubagentStart'])==1"
+
+echo "== loader: idempotent re-run =="
+out="$(run)"
+hasnt  "loader: 2nd run no DRIFT"           "$out" "DRIFT"
+hasnt  "loader: 2nd run creates nothing"    "$out" "created"
+if [ "$(grep -c 'memory-loader.sh' "$TH/.claude/settings.json")" -eq 2 ]; then ok "loader: no duplicate registrations"; else no "loader: duplicate registrations in settings.json"; fi
+if [ "$(grep -c '^| memory-loader |' "$TH/.claude/hooks/REGISTRY.md")" -eq 1 ]; then ok "loader: single ledger row"; else no "loader: duplicate ledger rows"; fi
+
+echo "== loader: agent-type filter + payload shape =="
+hook="$TH/.claude/hooks/memory-loader.sh"
+printf -- '- [loader test entry](tools/x.md) -- with "quotes" and a \\ backslash\n' >> "$TH/.claude/memory/MEMORY.md"
+o="$(printf '%s' '{"agent_type":"Explore","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "loader: Explore skipped"; else no "loader: Explore not skipped"; fi
+o="$(printf '%s' '{"agent_type":"Plan","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "loader: Plan skipped"; else no "loader: Plan not skipped"; fi
+o="$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "loader: other events silent"; else no "loader: other events not silent"; fi
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$py" ]; then
+  printf '  SKIP  loader: subagent payload JSON assert (no python)\n'
+elif printf '%s' "$o" | "$py" -c "import json,sys; d=json.load(sys.stdin); h=d['hookSpecificOutput']; assert h['hookEventName']=='SubagentStart'; assert 'loader test entry' in h['additionalContext']" >/dev/null 2>&1; then
+  ok "loader: general-purpose gets valid JSON (quotes/backslash escaped)"
+else
+  no "loader: general-purpose payload invalid JSON or missing entry"
+fi
+o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$hook")"
+case "$o" in *"Cross-project memory index"*) ok "loader: SessionStart payload present";; *) no "loader: SessionStart payload missing";; esac
+
+echo "== loader: empty index injects nothing; oversized index warns =="
+fresh_home
+run >/dev/null
+o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$TH/.claude/hooks/memory-loader.sh")"
+if [ -z "$o" ]; then ok "loader: empty Entries -> silent"; else no "loader: empty Entries injected something"; fi
+for _i in $(seq 1 205); do printf -- '- [e%d](x.md) -- filler\n' "$_i" >> "$TH/.claude/memory/MEMORY.md"; done
+o="$(printf '%s' '{"hook_event_name":"SessionStart"}' | HOME="$TH" bash "$TH/.claude/hooks/memory-loader.sh" 2>/dev/null)"
+case "$o" in *"WARNING:"*) ok "loader: size warning past 200 entry lines";; *) no "loader: size warning missing";; esac
+
+echo "== loader: preserves unrelated settings.json content =="
+fresh_home
+mkdir -p "$TH/.claude"
+cat > "$TH/.claude/settings.json" <<'EOF'
+{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo other-hook"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "echo existing-sessionstart"}]}]
+  }
+}
+EOF
+out="$(run)"
+has    "loader: appended into existing settings" "$out" "appended  memory-loader registration"
+json_ok "loader: unrelated keys and hooks preserved, ours appended" "$TH/.claude/settings.json" \
+  "assert d['model']=='opus'; assert d['hooks']['PreToolUse'][0]['hooks'][0]['command']=='echo other-hook'; cmds=[h['command'] for e in d['hooks']['SessionStart'] for h in e['hooks']]; assert 'echo existing-sessionstart' in cmds; assert any('memory-loader.sh' in c for c in cmds); assert len(d['hooks']['SessionStart'])==2"
+
+echo "== loader: uninstall is surgical + sticky; --install-loader re-enables =="
+out="$(run --uninstall-loader)"
+has    "loader: uninstall removes registration" "$out" "removed   memory-loader registration"
+nofile "loader: script removed" "$TH/.claude/hooks/memory-loader.sh"
+nofile "loader: stamp removed"  "$TH/.claude/hooks/.memory-loader.delivered"
+file   "loader: optout sentinel written" "$TH/.claude/hooks/.memory-loader.optout"
+json_ok "loader: other hooks survive uninstall, empty event key dropped" "$TH/.claude/settings.json" \
+  "assert d['hooks']['PreToolUse'][0]['hooks'][0]['command']=='echo other-hook'; assert [h['command'] for e in d['hooks']['SessionStart'] for h in e['hooks']]==['echo existing-sessionstart']; assert 'SubagentStart' not in d['hooks']"
+hasnt  "loader: ledger row gone" "$(cat "$TH/.claude/hooks/REGISTRY.md")" "| memory-loader |"
+out="$(run)"
+has    "loader: bare re-run stays opted out" "$out" "opted out; --install-loader to re-enable"
+nofile "loader: not reinstalled while opted out" "$TH/.claude/hooks/memory-loader.sh"
+out="$(run --install-loader)"
+has    "loader: --install-loader reinstalls" "$out" "memory-loader hook installed"
+nofile "loader: optout cleared" "$TH/.claude/hooks/.memory-loader.optout"
+
+echo "== loader: --no-loader skips entirely =="
+fresh_home
+out="$(run --no-loader)"
+has    "loader: skip reported" "$out" "skip      memory-loader hook (--no-loader)"
+nofile "loader: no script" "$TH/.claude/hooks/memory-loader.sh"
+nofile "loader: no settings.json" "$TH/.claude/settings.json"
+
+echo "== loader: unmodified-stale auto-updates; edited copy needs --force =="
+fresh_home; run >/dev/null
+printf 'old loader version\n' > "$TH/.claude/hooks/memory-loader.sh"
+nhash "$TH/.claude/hooks/memory-loader.sh" > "$TH/.claude/hooks/.memory-loader.delivered"
+out="$(run)"
+has    "loader: pristine-stale auto-updated on bare run" "$out" "updated to current version"
+if diff -q <(normalize_t "$repo_root/hooks/memory-loader.sh") <(normalize_t "$TH/.claude/hooks/memory-loader.sh") >/dev/null; then ok "loader: updated copy matches source"; else no "loader: updated copy != source"; fi
+printf 'HAND EDIT\n' >> "$TH/.claude/hooks/memory-loader.sh"
+out="$(run)"
+has    "loader: edited copy -> DRIFT" "$out" "differs and looks edited"
+out="$(run --force)"
+has    "loader: --force overwrote edited copy" "$out" "overwrote modified copy"
+
+echo "== loader: registration drift -> report, --force resync =="
+fresh_home; run >/dev/null
+sed -i.bak 's/"timeout": 10/"timeout": 99/' "$TH/.claude/settings.json" && rm -f "$TH/.claude/settings.json.bak"
+out="$(run)"
+has    "loader: registration drift reported" "$out" "memory-loader registration differs from canonical"
+out="$(run --force)"
+has    "loader: --force replaced registration" "$out" "memory-loader registration replaced"
+json_ok "loader: registration canonical again" "$TH/.claude/settings.json" \
+  "assert all(e['hooks'][0]['timeout']==10 for ev in ('SessionStart','SubagentStart') for e in d['hooks'][ev])"
+
+echo "== loader: unparseable settings.json never touched =="
+fresh_home
+mkdir -p "$TH/.claude"
+printf '{ this is not json' > "$TH/.claude/settings.json"
+out="$(run)"
+has    "loader: invalid settings -> WARN" "$out" "not valid JSON; not touching it"
+if [ "$(cat "$TH/.claude/settings.json")" = "{ this is not json" ]; then ok "loader: invalid settings left byte-identical"; else no "loader: invalid settings was modified"; fi
 
 # ---- per-skill matrix --------------------------------------------------------
 # Factored into a function so every bundled skill gets identical coverage and

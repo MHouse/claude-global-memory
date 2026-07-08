@@ -14,13 +14,17 @@ The index lives at `~/.claude/memory/MEMORY.md`; entries linked from it
 are short Markdown files with `name` / `description` / `type`
 frontmatter where `type ∈ user, feedback, project, reference`.
 
-At session start, read `~/.claude/memory/MEMORY.md` and load any entries
-that look relevant to the current task. This is the **cross-project**
-layer; it coexists with the harness's **per-project** auto-memory
-under `~/.claude/projects/<slug>/memory/` — separate scope, same file
-format and `type` frontmatter. Treat this index as additive to
-per-project memory; the same fact doesn't live in both layers, and the
-save threshold below routes between them.
+A "Cross-project memory index" block in context is that file's
+`## Entries` section, injected mechanically by the memory-loader hook —
+into main sessions (startup/resume/clear/compact) and non-lean
+subagents alike, the same load guarantee the per-project layer gets.
+Index lines are pointers: read the linked entry file under
+`~/.claude/memory/` before acting on one. Fallback: if no such block is
+present in context, read `~/.claude/memory/MEMORY.md` before
+proceeding. This cross-project layer coexists with the per-project
+auto-memory — separate scope, same file format and `type` frontmatter;
+the same fact doesn't live in both layers, and the save threshold below
+routes between them.
 
 A memory belongs in `~/.claude/memory/` only if (a) the same fact would
 be useful in at least two unrelated projects on this machine, or (b)

@@ -48,10 +48,14 @@ Keep `name:` short and slug-like so `[[name]]` link targets stay clean.
 ## Index-line salience (the lazy-load escape hatch)
 
 Entry bodies load **lazily** — only when one looks relevant to the task.
-The index (this file) loads into *every* session, so the one-line entry is
-the only part guaranteed to be in context when you act. Failure mode: a
-gotcha that matters at *command-formation time* wasn't judged relevant at
-session start, so the body isn't pulled and the command fails first —
+The index (this file) is injected *mechanically*: the memory-loader hook
+(installed by the bootstrap) emits the `## Entries` section into every
+main session at start/resume/clear/compact and into every non-lean
+subagent at spawn — the same load guarantee the per-project layer gets.
+So the one-line entry is guaranteed to be in context when you act; that
+guarantee is what makes promoting a line worthwhile. The failure mode
+that remains: a gotcha that matters at *command-formation time* whose
+body wasn't judged relevant and pulled, so the command fails first —
 reactive, not proactive.
 
 For most entries a descriptive pointer is fine; keep the long tail terse.
@@ -65,10 +69,14 @@ reminder, at no extra load. For example:
 but does nothing non-interactively`.
 
 Reserve this for the handful that clear *both* bars; over-promoting bloats
-the index and erodes routing quality (see the cost note in the README).
-When a rule is destructive *and* mechanically matchable, a `PreToolUse`
-hook is the heavier alternative — for *when* a hook is justified over an
-index line and how to add one, see `HOOKS.md` (the scaffold installs none).
+the index and erodes routing quality (see the cost note in the README) —
+and the loader injects into every non-lean subagent too, so bloat
+multiplies under fan-out (it warns past ~200 entry lines). On a machine
+without the hook, the global CLAUDE.md carries one fallback line: read
+this file before proceeding. When a rule is destructive *and*
+mechanically matchable, a `PreToolUse` guardrail hook is the heavier
+action-point mechanism — for *when* that's justified over an index line
+and how to add one, see `HOOKS.md`.
 
 ## Maintenance
 

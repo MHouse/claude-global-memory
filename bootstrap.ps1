@@ -14,11 +14,21 @@
     4. Appends the cross-project memory section to ~/.claude/CLAUDE.md if
        absent. If present, compares the section body against the snippet
        and reports drift.
-    5. Seeds ~/.claude/hooks/REGISTRY.md (an empty hooks ledger) from
+    5. Seeds ~/.claude/hooks/REGISTRY.md (a hooks ledger) from
        REGISTRY.md.template if absent; otherwise drift-checks its preamble
-       (above '## Registered hooks'). This is plain Markdown -- it is NOT a
-       hook and never mutates settings.json. The scaffold installs no hooks.
-    6. ONLY with -InstallSkills: copies the bundled skills (closeout,
+       (above '## Registered hooks').
+    6. Installs the memory-loader hook (default ON): copies
+       hooks/memory-loader.sh to ~/.claude/hooks/ and registers it in
+       ~/.claude/settings.json under SessionStart + SubagentStart. This is
+       the ONE place bootstrap touches settings.json: the loader's two
+       registration blocks, merged with a real JSON parser; every other
+       key, event, and entry is preserved. The loader injects the
+       '## Entries' of ~/.claude/memory/MEMORY.md into main sessions and
+       non-lean subagents (the script itself skips Explore and Plan).
+       -NoLoader skips this run; -UninstallLoader removes it all and opts
+       out of future bare runs; -InstallLoader opts back in. Also keeps one
+       bootstrap-managed row (first cell 'memory-loader') in the ledger.
+    7. ONLY with -InstallSkills: copies the bundled skills (closeout,
        memory-sweep) to ~/.claude/skills/<name>/SKILL.md (whole-file
        managed surfaces, each with a .delivered stamp). Default off. Pass
        -Skills <names> to select a subset; omit for all. -UninstallSkills
@@ -29,6 +39,9 @@
   with a diff but not corrected. Re-run with -Force to rewrite drifted
   regions with the canonical content. Hand-customisations inside those
   regions will be lost; customisations outside them are preserved.
+  (One exception: an installed memory-loader.sh whose stamp proves it was
+  never hand-edited auto-updates on a bare run -- load-bearing
+  infrastructure, no user content at risk.)
 
   -WhatIf shows what would change without writing anything.
 
@@ -52,6 +65,9 @@
 [CmdletBinding(SupportsShouldProcess=$true)]
 param(
     [switch]$Force,
+    [switch]$NoLoader,
+    [switch]$InstallLoader,
+    [switch]$UninstallLoader,
     [switch]$InstallSkills,
     [switch]$UninstallSkills,
     [string[]]$Skills
@@ -69,6 +85,19 @@ $snippet     = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
 $hooksDir         = Join-Path $claudeHome 'hooks'
 $registry         = Join-Path $hooksDir 'REGISTRY.md'
 $registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
+$settingsJson     = Join-Path $claudeHome 'settings.json'
+$loaderSource     = Join-Path $repoRoot (Join-Path 'hooks' 'memory-loader.sh')
+$loaderTarget     = Join-Path $hooksDir 'memory-loader.sh'
+$loaderStamp      = Join-Path $hooksDir '.memory-loader.delivered'
+$loaderOptout     = Join-Path $hooksDir '.memory-loader.optout'
+# The registration command string. Absolute path (HOOKS.md: ~ is not reliably
+# expanded in settings.json command strings); double quotes so paths with
+# spaces survive every shell; forward slashes so the same string comes out of
+# bootstrap.ps1 and bootstrap.sh (which uses cygpath -m) on the same machine.
+$loaderCmd        = 'bash "' + ($loaderTarget -replace '\\', '/') + '"'
+$loaderEvents     = @('SessionStart', 'SubagentStart')
+# Flag-neutral so bootstrap.sh and bootstrap.ps1 emit the identical row.
+$loaderRegistryRow = '| memory-loader | SessionStart + SubagentStart (no matcher) | main-session start/resume/clear/compact + non-lean subagent spawn (script skips Explore, Plan) | the ## Entries section of ~/.claude/memory/MEMORY.md | the index itself | harness injects cross-project memory natively, or uninstall via bootstrap (--uninstall-loader / -UninstallLoader) |'
 $skillsDir        = Join-Path $claudeHome 'skills'
 # Bundled skills shipped by this repo, installed on demand (see -InstallSkills).
 # Add a skill by dropping skills\<name>\SKILL.md and listing <name> here.
@@ -82,6 +111,9 @@ if (-not (Test-Path $snippet)) {
 }
 if (-not (Test-Path $registryTemplate)) {
     throw "Registry template not found at $registryTemplate -- run this script from a clone of the claude-global-memory repo."
+}
+if (-not (Test-Path $loaderSource)) {
+    throw "Loader hook source not found at $loaderSource -- run this script from a clone of the claude-global-memory repo."
 }
 
 # ---- helpers -------------------------------------------------------------
@@ -221,11 +253,147 @@ function Test-SkillSelected($name) {
     return ($Skills -contains $name)
 }
 
+# ---- memory-loader helpers -------------------------------------------------
+# The settings.json merge NEVER text-munges: parse, mutate, re-serialize,
+# round-trip-validate, atomic rename. An unparseable file is never touched.
+# Mirrors the settings_merge python helper in bootstrap.sh.
+
+function Read-SettingsState {
+    # @{ Status = 'invalid' } or @{ Status = 'ok'; Data = <obj or $null> }
+    if (-not (Test-Path -LiteralPath $settingsJson)) { return @{ Status = 'ok'; Data = $null } }
+    $raw = Get-Content -LiteralPath $settingsJson -Raw
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return @{ Status = 'ok'; Data = $null } }
+    try { $d = ConvertFrom-Json $raw } catch { return @{ Status = 'invalid' } }
+    if ($d -isnot [pscustomobject]) { return @{ Status = 'invalid' } }
+    return @{ Status = 'ok'; Data = $d }
+}
+
+function Test-OursEntry($entry) {
+    # An entry is ours if any of its hook commands references the loader path
+    # (either slash style, in case of an old hand-added registration).
+    if ($null -eq $entry) { return $false }
+    $hs = $entry.hooks
+    if ($null -eq $hs) { return $false }
+    foreach ($h in @($hs)) {
+        if ($null -eq $h -or $null -eq $h.command) { continue }
+        if ((($h.command) -replace '\\', '/') -like '*/hooks/memory-loader.sh*') { return $true }
+    }
+    return $false
+}
+
+function Test-CanonicalEntry($entry) {
+    if ($null -eq $entry) { return $false }
+    $names = @($entry.PSObject.Properties.Name)
+    if ($names.Count -ne 1 -or $names[0] -ne 'hooks') { return $false }
+    $hs = @($entry.hooks)
+    if ($hs.Count -ne 1) { return $false }
+    $h = $hs[0]
+    $hn = (@($h.PSObject.Properties.Name) | Sort-Object) -join ','
+    if ($hn -ne 'command,timeout,type') { return $false }
+    return (($h.type -eq 'command') -and ($h.command -eq $loaderCmd) -and ($h.timeout -eq 10))
+}
+
+function New-CanonicalEntry {
+    return [pscustomobject]@{
+        hooks = @([pscustomobject]@{ type = 'command'; command = $loaderCmd; timeout = 10 })
+    }
+}
+
+function Get-LoaderRegistrationStatus {
+    # ok | absent | partial | drift | invalid (same tokens as bootstrap.sh).
+    $st = Read-SettingsState
+    if ($st.Status -eq 'invalid') { return 'invalid' }
+    if ($null -eq $st.Data) { return 'absent' }
+    $hooks = $st.Data.hooks
+    if ($null -ne $hooks -and $hooks -isnot [pscustomobject]) { return 'invalid' }
+    $states = @()
+    foreach ($ev in $loaderEvents) {
+        $arr = @()
+        if ($null -ne $hooks -and $hooks.PSObject.Properties[$ev]) {
+            $v = $hooks.$ev
+            if ($null -ne $v -and $v -isnot [System.Array]) { return 'invalid' }
+            if ($null -ne $v) { $arr = @($v) }
+        }
+        $ours = @($arr | Where-Object { Test-OursEntry $_ })
+        if ($ours.Count -eq 0) { $states += 'absent' }
+        elseif ($ours.Count -eq 1 -and (Test-CanonicalEntry $ours[0])) { $states += 'ok' }
+        else { $states += 'drift' }
+    }
+    if ($states -contains 'drift') { return 'drift' }
+    if (@($states | Where-Object { $_ -eq 'ok' }).Count -eq 2) { return 'ok' }
+    if (@($states | Where-Object { $_ -eq 'absent' }).Count -eq 2) { return 'absent' }
+    return 'partial'
+}
+
+function Write-SettingsFile($data) {
+    $json = ConvertTo-Json -InputObject $data -Depth 32
+    ConvertFrom-Json $json | Out-Null   # round-trip check before touching the file
+    $tmp = Join-Path $claudeHome ('.settings.tmp.' + [guid]::NewGuid().ToString('N'))
+    [System.IO.File]::WriteAllText($tmp, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $tmp -Destination $settingsJson -Force
+}
+
+function Set-LoaderRegistration {
+    # Ensure both canonical blocks exist; caller has already gated on status.
+    $st = Read-SettingsState
+    $data = $st.Data
+    if ($null -eq $data) { $data = [pscustomobject]@{} }
+    $hooksProp = $data.PSObject.Properties['hooks']
+    if ($null -eq $hooksProp -or $null -eq $data.hooks -or $data.hooks -isnot [pscustomobject]) {
+        if ($hooksProp) { $data.PSObject.Properties.Remove('hooks') }
+        $data | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{})
+    }
+    $hooks = $data.hooks
+    foreach ($ev in $loaderEvents) {
+        $arr = @()
+        if ($hooks.PSObject.Properties[$ev] -and $null -ne $hooks.$ev) { $arr = @($hooks.$ev) }
+        $ours = @($arr | Where-Object { Test-OursEntry $_ })
+        if ($ours.Count -eq 1 -and (Test-CanonicalEntry $ours[0]) -and $hooks.PSObject.Properties[$ev]) { continue }
+        $kept = @($arr | Where-Object { -not (Test-OursEntry $_) })
+        $new = @($kept) + @(New-CanonicalEntry)
+        if ($hooks.PSObject.Properties[$ev]) { $hooks.$ev = $new }
+        else { $hooks | Add-Member -MemberType NoteProperty -Name $ev -Value $new }
+    }
+    Write-SettingsFile $data
+}
+
+function Remove-LoaderRegistration {
+    $st = Read-SettingsState
+    if ($st.Status -eq 'invalid') { return }
+    $data = $st.Data
+    if ($null -eq $data) { return }
+    if (-not $data.PSObject.Properties['hooks'] -or $data.hooks -isnot [pscustomobject]) { return }
+    $hooks = $data.hooks
+    $changed = $false
+    foreach ($ev in $loaderEvents) {
+        if (-not $hooks.PSObject.Properties[$ev] -or $null -eq $hooks.$ev) { continue }
+        $arr = @($hooks.$ev)
+        $kept = @($arr | Where-Object { -not (Test-OursEntry $_) })
+        if ($kept.Count -eq $arr.Count) { continue }
+        $changed = $true
+        if ($kept.Count -eq 0) { $hooks.PSObject.Properties.Remove($ev) }
+        else { $hooks.$ev = $kept }
+    }
+    if ($changed) {
+        if (@($hooks.PSObject.Properties).Count -eq 0) { $data.PSObject.Properties.Remove('hooks') }
+        Write-SettingsFile $data
+    }
+}
+
+function Test-LoaderRegistryRowPresent {
+    if (-not (Test-Path -LiteralPath $registry)) { return $false }
+    $hit = Get-Content -LiteralPath $registry | Where-Object { $_ -match '^\| memory-loader \|' } | Select-Object -First 1
+    return [bool]$hit
+}
+
 # ---- run ----------------------------------------------------------------
 
 # LOCKSTEP PARITY (bootstrap.ps1 <-> bootstrap.sh): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
 #   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
+#   - memory-loader (default-on): script install + stamp + auto-update of
+#     unmodified-stale copies, the two-event settings.json merge/uninstall,
+#     the ledger row, and the sticky opt-out
 #   - bundled skills (opt-in): install / uninstall / whole-file drift report /
 #     .delivered stamp / symlink-junction refusal / -Force + re-install resync
 # Verify BOTH scripts after a change: `pwsh -NoProfile -File test/verify.ps1` AND
@@ -332,8 +500,8 @@ if (-not (Test-Path $claudeMd)) {
     }
 }
 
-# 5. Hooks registry. Markdown ledger ONLY -- this is never a hook and never
-#    mutates settings.json; the scaffold installs no hooks (see HOOKS.md).
+# 5. Hooks registry. Markdown ledger; the memory-loader (step 6) is the only
+#    hook this scaffold installs (see HOOKS.md).
 if (-not (Test-Path $hooksDir)) {
     if ($PSCmdlet.ShouldProcess($hooksDir, 'create directory')) {
         New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
@@ -376,7 +544,166 @@ if (-not (Test-Path $registry)) {
     }
 }
 
-# 6. Bundled skills (opt-in) -- whole-file managed surfaces; mirrors the
+# 6. Memory-loader hook (default ON; see HOOKS.md "The load-bearing exception").
+#    Mirrors the manage_loader block in bootstrap.sh exactly. Three surfaces:
+#    (a) ~/.claude/hooks/memory-loader.sh -- whole-file surface + .delivered
+#        stamp; an unmodified-but-stale copy auto-updates on a bare run (the
+#        bare run is the loader's install gesture and the stamp proves no
+#        user edit is lost); hand-edited copies still require -Force.
+#    (b) ~/.claude/settings.json -- the ONE place bootstrap touches it: the
+#        loader's two registration blocks; everything else is preserved and
+#        an unparseable file is never touched.
+#    (c) ~/.claude/hooks/REGISTRY.md -- one bootstrap-managed row (first cell
+#        'memory-loader'); other rows are never touched.
+#    -UninstallLoader is sticky via .memory-loader.optout so a later bare
+#    re-run does not silently resurrect the hook; -InstallLoader re-enables;
+#    -NoLoader skips loader management for this run only.
+function Manage-Loader {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param()
+
+    if ($UninstallLoader) {
+        if (Test-Path -LiteralPath $settingsJson) {
+            $status = Get-LoaderRegistrationStatus
+            if ($status -eq 'invalid') {
+                $script:summary += "  WARN      $settingsJson (not valid JSON; remove the memory-loader registration by hand, see BOOTSTRAP.md)"
+            } elseif ($status -ne 'absent') {
+                if ($PSCmdlet.ShouldProcess($settingsJson, 'remove memory-loader registration')) {
+                    Remove-LoaderRegistration
+                }
+                $script:summary += "  removed   memory-loader registration from $settingsJson"
+            }
+        }
+        if (Test-IsReparsePoint $loaderTarget) {
+            if ($PSCmdlet.ShouldProcess($loaderTarget, 'remove memory-loader symlink/junction')) {
+                (Get-Item -LiteralPath $loaderTarget -Force).Delete()
+            }
+            $script:summary += "  removed   $loaderTarget (memory-loader symlink/junction removed; target left untouched)"
+        } elseif (Test-Path -LiteralPath $loaderTarget) {
+            if ($PSCmdlet.ShouldProcess($loaderTarget, 'uninstall memory-loader hook')) {
+                Remove-Item -LiteralPath $loaderTarget -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $loaderStamp  -Force -ErrorAction SilentlyContinue
+            }
+            $script:summary += "  removed   $loaderTarget (memory-loader uninstalled)"
+        } else {
+            $script:summary += "  skip      memory-loader hook (not installed)"
+        }
+        if (Test-LoaderRegistryRowPresent) {
+            if ($PSCmdlet.ShouldProcess($registry, 'remove memory-loader row')) {
+                $regLines = @(Get-Content -LiteralPath $registry) | Where-Object { $_ -notmatch '^\| memory-loader \|' }
+                Write-File $registry $regLines
+            }
+            $script:summary += "  removed   memory-loader row from $registry"
+        }
+        if ($PSCmdlet.ShouldProcess($loaderOptout, 'record loader opt-out')) {
+            New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
+            Set-Content -Path $loaderOptout -Value '' -NoNewline
+        }
+        $script:summary += "  created   $loaderOptout (bare re-runs stay opted out; -InstallLoader re-enables)"
+        return
+    }
+
+    if ($NoLoader) {
+        $script:summary += "  skip      memory-loader hook (-NoLoader)"
+        return
+    }
+
+    if (Test-Path -LiteralPath $loaderOptout) {
+        if ($InstallLoader) {
+            if ($PSCmdlet.ShouldProcess($loaderOptout, 'clear loader opt-out')) {
+                Remove-Item -LiteralPath $loaderOptout -Force
+            }
+        } else {
+            $script:summary += "  skip      memory-loader hook (opted out; -InstallLoader to re-enable)"
+            return
+        }
+    }
+
+    if (Test-IsReparsePoint $loaderTarget) {
+        $script:summary += "  WARN      $loaderTarget is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return
+    }
+
+    # (a) the hook script itself
+    if (-not (Test-Path -LiteralPath $loaderTarget)) {
+        if ($PSCmdlet.ShouldProcess($loaderTarget, 'install memory-loader hook')) {
+            Install-Skill $loaderSource $hooksDir $loaderTarget $loaderStamp
+        }
+        $script:summary += "  created   $loaderTarget (memory-loader hook installed)"
+    } else {
+        $srcHash  = Get-NormalizedHash $loaderSource
+        $instHash = Get-NormalizedHash $loaderTarget
+        if ($srcHash -eq $instHash) {
+            $script:summary += "  exists    $loaderTarget (in sync)"
+        } else {
+            $stampHash = ''
+            if (Test-Path -LiteralPath $loaderStamp) { $stampHash = (Get-Content -LiteralPath $loaderStamp -Raw).Trim() }
+            if ($stampHash -ne '' -and $stampHash -eq $instHash) {
+                # Unmodified since we wrote it: auto-update (see block comment).
+                if ($PSCmdlet.ShouldProcess($loaderTarget, 'update memory-loader hook to current version')) {
+                    Install-Skill $loaderSource $hooksDir $loaderTarget $loaderStamp
+                }
+                $script:summary += "  synced    $loaderTarget (updated to current version)"
+            } elseif ($Force) {
+                if ($PSCmdlet.ShouldProcess($loaderTarget, 'overwrite modified memory-loader hook')) {
+                    Install-Skill $loaderSource $hooksDir $loaderTarget $loaderStamp
+                }
+                $script:summary += "  synced    $loaderTarget (overwrote modified copy)"
+            } else {
+                $script:summary += "  DRIFT     $loaderTarget (differs and looks edited; -Force overwrites your changes)"
+                $script:driftReported = $true
+            }
+        }
+    }
+
+    # (b) settings.json registrations
+    $status = Get-LoaderRegistrationStatus
+    switch ($status) {
+        'ok' {
+            $script:summary += "  exists    $settingsJson (memory-loader registered)"
+        }
+        'invalid' {
+            $script:summary += "  WARN      $settingsJson (not valid JSON; not touching it -- add the memory-loader registration by hand, see BOOTSTRAP.md)"
+        }
+        'drift' {
+            if ($Force) {
+                if ($PSCmdlet.ShouldProcess($settingsJson, 'replace memory-loader registration')) {
+                    Set-LoaderRegistration
+                }
+                $script:summary += "  synced    $settingsJson (memory-loader registration replaced)"
+            } else {
+                $script:summary += "  DRIFT     $settingsJson (memory-loader registration differs from canonical; re-run with -Force to sync)"
+                $script:driftReported = $true
+            }
+        }
+        default {
+            $existed = Test-Path -LiteralPath $settingsJson
+            if ($PSCmdlet.ShouldProcess($settingsJson, 'register memory-loader (SessionStart + SubagentStart)')) {
+                Set-LoaderRegistration
+            }
+            if ($existed) {
+                $script:summary += "  appended  memory-loader registration to $settingsJson"
+            } else {
+                $script:summary += "  created   $settingsJson (memory-loader registered under SessionStart + SubagentStart)"
+            }
+        }
+    }
+
+    # (c) ledger row
+    if ((Test-Path -LiteralPath $registry) -and -not (Test-LoaderRegistryRowPresent)) {
+        $regLines = @(Get-Content -LiteralPath $registry)
+        if (@($regLines | Where-Object { $_ -match '^## Registered hooks\s*$' }).Count -gt 0) {
+            if ($PSCmdlet.ShouldProcess($registry, 'append memory-loader row')) {
+                Add-Content -Path $registry -Value $loaderRegistryRow
+            }
+            $script:summary += "  appended  memory-loader row to $registry"
+        }
+    }
+}
+
+Manage-Loader
+
+# 7. Bundled skills (opt-in) -- whole-file managed surfaces; mirrors the
 #    --install-skills / --uninstall-skills block in bootstrap.sh exactly.
 #    Each owns its whole SKILL.md, installs only on -InstallSkills, re-syncs only
 #    on demand (-Force, or -InstallSkills re-run for an unmodified-but-stale

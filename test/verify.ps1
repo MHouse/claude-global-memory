@@ -4,8 +4,10 @@
 
 .DESCRIPTION
   Runs the BOOTSTRAP.md recipe against a throwaway USERPROFILE and asserts the
-  managed-surface idempotency + drift-detection + -Force resync contract, and
-  the full opt-in per-skill matrix (closeout + memory-sweep). The repo's manual test convention (no CI, no
+  managed-surface idempotency + drift-detection + -Force resync contract, the
+  memory-loader contract (default-on install, surgical settings.json merge,
+  agent-type filter, sticky uninstall), and the full opt-in per-skill matrix
+  (closeout + memory-sweep). The repo's manual test convention (no CI, no
   app) made runnable. Run by hand before landing a bootstrap change:
 
       pwsh -NoProfile -File test/verify.ps1
@@ -72,6 +74,182 @@ Has    "drift: drift is on MEMORY.md"             $out "MEMORY.md"
 $out = Run -Force
 Has    "force: synced reported" $out "synced"
 if ((Get-Content $mem -Raw).Contains('[my entry](x.md)')) { Ok "force: user entry below ## Entries preserved" } else { No "force: user entry clobbered" }
+
+# ---- memory-loader (default-on) ----------------------------------------------
+# Mirrors the loader block in verify.sh -- keep the two in sync. Hook-EXECUTION
+# asserts need a real Git Bash: plain `bash` from PowerShell on Windows resolves
+# to the WSL stub. Resolve it from git.exe's install root; SKIP just those
+# asserts if absent (all bootstrap/settings asserts still run).
+function Get-GitBash {
+    if ($env:OS -ne 'Windows_NT') { return 'bash' }
+    $candidates = @()
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        $root = Split-Path (Split-Path $git.Source -Parent) -Parent
+        $candidates += (Join-Path $root 'bin\bash.exe')
+        $candidates += (Join-Path $root 'usr\bin\bash.exe')
+    }
+    $candidates += 'C:\Program Files\Git\bin\bash.exe'
+    foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
+    return $null
+}
+$gitBash = Get-GitBash
+
+function Invoke-LoaderHook($payload) {
+    # Forward-slash HOME/script paths so Git Bash resolves them cleanly.
+    $oldHome = $env:HOME
+    $env:HOME = ($script:TH -replace '\\', '/')
+    try {
+        $hookPath = ((Join-Path $script:TH '.claude\hooks\memory-loader.sh') -replace '\\', '/')
+        return ($payload | & $gitBash $hookPath 2>$null | Out-String).Trim()
+    } finally {
+        if ($null -ne $oldHome) { $env:HOME = $oldHome } else { Remove-Item Env:HOME -ErrorAction SilentlyContinue }
+    }
+}
+
+Write-Host "== loader: fresh install (default-on) =="
+Fresh-Home
+$out = Run
+FileIs "loader: script installed"      (Join-Path $script:TH '.claude\hooks\memory-loader.sh')
+FileIs "loader: stamp present"         (Join-Path $script:TH '.claude\hooks\.memory-loader.delivered')
+FileIs "loader: settings.json created" (Join-Path $script:TH '.claude\settings.json')
+Has "loader: registration reported" $out "memory-loader registered under SessionStart + SubagentStart"
+Has "loader: ledger row appended"   $out "appended  memory-loader row"
+$d = Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw | ConvertFrom-Json
+if (@($d.hooks.SessionStart).Count -eq 1 -and @($d.hooks.SubagentStart).Count -eq 1) { Ok "loader: valid JSON, both events, one entry each" } else { No "loader: registration wrong shape" }
+
+Write-Host "== loader: idempotent re-run =="
+$out = Run
+Hasnt "loader: 2nd run no DRIFT"        $out "DRIFT"
+Hasnt "loader: 2nd run creates nothing" $out "created"
+$raw = Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw
+if (([regex]::Matches($raw, 'memory-loader\.sh')).Count -eq 2) { Ok "loader: no duplicate registrations" } else { No "loader: duplicate registrations in settings.json" }
+if (@(Get-Content (Join-Path $script:TH '.claude\hooks\REGISTRY.md') | Where-Object { $_ -match '^\| memory-loader \|' }).Count -eq 1) { Ok "loader: single ledger row" } else { No "loader: duplicate ledger rows" }
+
+Write-Host "== loader: agent-type filter + payload shape =="
+Add-Content -Path (Join-Path $script:TH '.claude\memory\MEMORY.md') -Value '- [loader test entry](tools/x.md) -- with "quotes" and a \ backslash'
+if ($null -eq $gitBash) {
+    Write-Host "  SKIP  loader: hook execution asserts (no Git Bash found)"
+} else {
+    $o = Invoke-LoaderHook '{"agent_type":"Explore","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "loader: Explore skipped" } else { No "loader: Explore not skipped" }
+    $o = Invoke-LoaderHook '{"agent_type":"Plan","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "loader: Plan skipped" } else { No "loader: Plan not skipped" }
+    $o = Invoke-LoaderHook '{"hook_event_name":"PreToolUse","tool_name":"Bash"}'
+    if ($o -eq '') { Ok "loader: other events silent" } else { No "loader: other events not silent" }
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    $parsed = $null
+    try { $parsed = $o | ConvertFrom-Json } catch {}
+    if ($parsed -and $parsed.hookSpecificOutput.hookEventName -eq 'SubagentStart' -and $parsed.hookSpecificOutput.additionalContext.Contains('loader test entry')) {
+        Ok "loader: general-purpose gets valid JSON (quotes/backslash escaped)"
+    } else { No "loader: general-purpose payload invalid JSON or missing entry" }
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart","source":"startup"}'
+    if ($o.Contains('Cross-project memory index')) { Ok "loader: SessionStart payload present" } else { No "loader: SessionStart payload missing" }
+}
+
+Write-Host "== loader: empty index injects nothing; oversized index warns =="
+Fresh-Home
+Run | Out-Null
+if ($null -eq $gitBash) {
+    Write-Host "  SKIP  loader: empty/oversized asserts (no Git Bash found)"
+} else {
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart","source":"startup"}'
+    if ($o -eq '') { Ok "loader: empty Entries -> silent" } else { No "loader: empty Entries injected something" }
+    $filler = 1..205 | ForEach-Object { "- [e$_](x.md) -- filler" }
+    Add-Content -Path (Join-Path $script:TH '.claude\memory\MEMORY.md') -Value ($filler -join "`n")
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart"}'
+    if ($o.Contains('WARNING:')) { Ok "loader: size warning past 200 entry lines" } else { No "loader: size warning missing" }
+}
+
+Write-Host "== loader: preserves unrelated settings.json content =="
+Fresh-Home
+New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude') -Force | Out-Null
+@'
+{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo other-hook"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "echo existing-sessionstart"}]}]
+  }
+}
+'@ | Set-Content -Path (Join-Path $script:TH '.claude\settings.json')
+$out = Run
+Has "loader: appended into existing settings" $out "appended  memory-loader registration"
+$d = Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw | ConvertFrom-Json
+$ssCmds = @($d.hooks.SessionStart | ForEach-Object { $_.hooks } | ForEach-Object { $_.command })
+if ($d.model -eq 'opus' -and
+    $d.hooks.PreToolUse[0].hooks[0].command -eq 'echo other-hook' -and
+    ($ssCmds -contains 'echo existing-sessionstart') -and
+    @($ssCmds | Where-Object { $_ -like '*memory-loader.sh*' }).Count -eq 1 -and
+    @($d.hooks.SessionStart).Count -eq 2) {
+    Ok "loader: unrelated keys and hooks preserved, ours appended"
+} else { No "loader: settings merge damaged unrelated content" }
+
+Write-Host "== loader: uninstall is surgical + sticky; -InstallLoader re-enables =="
+$out = Run -UninstallLoader
+Has    "loader: uninstall removes registration" $out "removed   memory-loader registration"
+NoFile "loader: script removed" (Join-Path $script:TH '.claude\hooks\memory-loader.sh')
+NoFile "loader: stamp removed"  (Join-Path $script:TH '.claude\hooks\.memory-loader.delivered')
+FileIs "loader: optout sentinel written" (Join-Path $script:TH '.claude\hooks\.memory-loader.optout')
+$d = Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw | ConvertFrom-Json
+if ($d.hooks.PreToolUse[0].hooks[0].command -eq 'echo other-hook' -and
+    @($d.hooks.SessionStart).Count -eq 1 -and
+    $d.hooks.SessionStart[0].hooks[0].command -eq 'echo existing-sessionstart' -and
+    -not $d.hooks.PSObject.Properties['SubagentStart']) {
+    Ok "loader: other hooks survive uninstall, empty event key dropped"
+} else { No "loader: uninstall damaged unrelated content" }
+Hasnt "loader: ledger row gone" (Get-Content (Join-Path $script:TH '.claude\hooks\REGISTRY.md') -Raw) "| memory-loader |"
+$out = Run
+Has    "loader: bare re-run stays opted out" $out "opted out; -InstallLoader to re-enable"
+NoFile "loader: not reinstalled while opted out" (Join-Path $script:TH '.claude\hooks\memory-loader.sh')
+$out = Run -InstallLoader
+Has    "loader: -InstallLoader reinstalls" $out "memory-loader hook installed"
+NoFile "loader: optout cleared" (Join-Path $script:TH '.claude\hooks\.memory-loader.optout')
+
+Write-Host "== loader: -NoLoader skips entirely =="
+Fresh-Home
+$out = Run -NoLoader
+Has    "loader: skip reported" $out "skip      memory-loader hook (-NoLoader)"
+NoFile "loader: no script" (Join-Path $script:TH '.claude\hooks\memory-loader.sh')
+NoFile "loader: no settings.json" (Join-Path $script:TH '.claude\settings.json')
+
+Write-Host "== loader: unmodified-stale auto-updates; edited copy needs -Force =="
+Fresh-Home; Run | Out-Null
+Set-Content -Path (Join-Path $script:TH '.claude\hooks\memory-loader.sh') -Value "old loader version`n" -NoNewline
+Set-Content -Path (Join-Path $script:TH '.claude\hooks\.memory-loader.delivered') -Value (NHash (Join-Path $script:TH '.claude\hooks\memory-loader.sh')) -NoNewline
+$out = Run
+Has "loader: pristine-stale auto-updated on bare run" $out "updated to current version"
+if ((NHash (Join-Path $script:TH '.claude\hooks\memory-loader.sh')) -eq (NHash (Join-Path $repoRoot 'hooks\memory-loader.sh'))) { Ok "loader: updated copy matches source" } else { No "loader: updated copy != source" }
+Add-Content -Path (Join-Path $script:TH '.claude\hooks\memory-loader.sh') -Value "HAND EDIT"
+$out = Run
+Has "loader: edited copy -> DRIFT" $out "differs and looks edited"
+$out = Run -Force
+Has "loader: -Force overwrote edited copy" $out "overwrote modified copy"
+
+Write-Host "== loader: registration drift -> report, -Force resync =="
+Fresh-Home; Run | Out-Null
+$sj = Join-Path $script:TH '.claude\settings.json'
+(Get-Content $sj -Raw) -replace '"timeout": 10', '"timeout": 99' | Set-Content -Path $sj -NoNewline
+$out = Run
+Has "loader: registration drift reported" $out "memory-loader registration differs from canonical"
+$out = Run -Force
+Has "loader: -Force replaced registration" $out "memory-loader registration replaced"
+$d = Get-Content $sj -Raw | ConvertFrom-Json
+$allTen = $true
+foreach ($ev in @('SessionStart', 'SubagentStart')) {
+    foreach ($e in @($d.hooks.$ev)) {
+        foreach ($h in @($e.hooks)) { if ($h.timeout -ne 10) { $allTen = $false } }
+    }
+}
+if ($allTen) { Ok "loader: registration canonical again" } else { No "loader: registration not canonical after -Force" }
+
+Write-Host "== loader: unparseable settings.json never touched =="
+Fresh-Home
+New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude') -Force | Out-Null
+Set-Content -Path (Join-Path $script:TH '.claude\settings.json') -Value '{ this is not json' -NoNewline
+$out = Run
+Has "loader: invalid settings -> WARN" $out "not valid JSON; not touching it"
+if ((Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw) -eq '{ this is not json') { Ok "loader: invalid settings left byte-identical" } else { No "loader: invalid settings was modified" }
 
 # ---- per-skill matrix --------------------------------------------------------
 # Factored into a function so every bundled skill gets identical coverage and the
