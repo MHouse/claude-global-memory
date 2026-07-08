@@ -36,6 +36,19 @@ Run `consolidate-memory` against the **cross-project** store (`~/.claude/memory/
 
 If `consolidate-memory` isn't available, say so and fall back to a *minimal* in-place tidy only — repair broken index links and obvious duplicates — explicitly **not** a deep reimplementation. Note the degradation in the summary.
 
+### Step 2b: Injection-budget check (cross-project store only)
+
+Loader-specific knowledge `consolidate-memory` doesn't have: the cross-project index's `## Entries` section is injected into context mechanically by the memory-loader hook, and the harness keeps only a **~2KB preview** of injections past **~10k characters** — entries below the fold lose the always-in-context guarantee. After the delegated clean, measure:
+
+```bash
+awk '/^## Entries[[:space:]]*$/{f=1;next} f' ~/.claude/memory/MEMORY.md | wc -c
+```
+
+- **Past ~9,000 bytes** (the loader warns at the same bound): propose trims — tighten verbose index lines back to routers (the linked entry body holds the detail), merge near-duplicate entries, demote low-value ones. Target comfortably under the bound, not just barely.
+- **Ordering:** the preview keeps the head, so promoted **imperative** lines (see the index's "Index-line salience") belong at the top of `## Entries`. If any imperative line sits below the first ~2KB, propose moving it up.
+
+Record proposals to the confirm batch (Step 5) — like promotions, never auto-applied.
+
 ### Step 3: Promotion analysis (cross-store — this skill's core)
 
 First, **collapse slugs to logical projects**: group clones/worktrees/platforms of one repo (same repo basename) so you count distinct projects, not distinct checkouts. When unsure two slugs are the same project, show both and let the user judge.
@@ -58,6 +71,7 @@ For per-project stores other than the current project's: you are outside their r
 Present one batch, grouped:
 
 - **Delegated (already done)** — what `consolidate-memory` reported for the cross-project store.
+- **Injection-budget trims/reorder** — proposed line tightenings and imperative-lines-first moves from Step 2b, with the measured byte count.
 - **Promotions** — each drafted general entry, its destination + index line + one-line "why it crossed over," and the source entries it merges/retires.
 - **Demotions** — source + proposed destination.
 - **Recommendations** — other-project stores worth consolidating in-project.

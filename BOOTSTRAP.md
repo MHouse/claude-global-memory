@@ -93,9 +93,13 @@ Behavior details, all covered by the test harness:
 
 - An empty `## Entries` (fresh install) injects **nothing** — zero token cost
   until you save your first memory.
-- Past ~200 entry lines the payload gains a leading WARNING line (and one on
-  stderr) telling you to prune or promote — routing quality decays before
-  token cost bites, and subagent fan-out multiplies both.
+- The payload gains a leading WARNING line (and one on stderr) when the index
+  outgrows its budget. Bytes bite first: the harness truncates injected
+  context past **~10k characters** to a **~2KB preview** persisted to a file
+  (probe-measured on CLI 2.1.204), so entries below the fold lose the
+  in-context guarantee — the loader warns at ~9KB of entries. The ~200-line
+  routing-quality cap is the second bound. Either way: trim or promote, and
+  keep imperative lines at the top — the preview keeps the head.
 - Output is a single JSON `hookSpecificOutput.additionalContext` object;
   the harness validates it with a real JSON parser, quotes and backslashes
   included.

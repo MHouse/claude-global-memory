@@ -85,7 +85,7 @@ Scan `~/.claude/memory/MEMORY.md` and the entries it links (treat the Step 2 can
 - **Stale facts** — did anything this session make an existing entry wrong (a renamed tool, a moved path, a retired flag)?
 - **Over-long entries** — flag index lines longer than one line (the index is a routing surface; long lines erode it). Reserve multi-line entries for the rare frequent-and-costly gotcha.
 - **Duplicates** — obvious overlaps that should merge.
-- **Index size** — if the index passes ~100 entries / ~200 lines, note it; routing quality degrades past that.
+- **Index size** — if the index passes ~100 entries / ~200 lines, note it; routing quality degrades past that. Also check bytes: past ~9KB of `## Entries` the memory-loader's injection gets truncated by the harness to a ~2KB preview, so entries below the fold lose their always-in-context guarantee — note it, and note any imperative line sitting below the first ~2KB (the preview keeps the head).
 
 Spot-check based on what's salient from this session — not a full audit. This is a shallow spot-check, not deep consolidation — and closeout is single-project, so it can't see whether a fact is duplicated across *other* projects or has earned promotion. Defer deep work to the consolidation skills (Step 7): single-directory dedup to `consolidate-memory`; cross-store dedup + **promotion** of cross-cutting facts to `memory-sweep`. If neither is installed, say so. Record each fix to the ledger (group: **Hygiene fixes**) with the exact before→after in the payload.
 

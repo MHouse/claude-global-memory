@@ -49,12 +49,16 @@ it.)
 
 **Cost note.** The index (`MEMORY.md`) is injected into every session, in
 every project — and into every non-lean subagent, which multiplies the
-spend under heavy fan-out — by design. The binding constraint isn't token
-cost — it's *routing quality*: as the index grows, the relevance signal
-weakens and Claude starts pulling in adjacent-but-unrelated entries. Keep
-entries to one line and the file under ~200 lines (~100 entries); the
-loader warns past that, and [`memory-sweep`](#maintenance) surfaces
-promotion candidates when it's time to prune. A few high-value lines may run longer to carry an inline
+spend under heavy fan-out — by design. Two constraints bound its size.
+*Routing quality*: as the index grows, the relevance signal weakens and
+Claude starts pulling in adjacent-but-unrelated entries — keep entries to
+one line and the file under ~200 lines (~100 entries). *The injection
+budget*: the harness truncates injected content past ~10k characters to a
+~2KB preview, so only the head of an oversized index is guaranteed in
+context — keep the `## Entries` payload under ~9KB and put imperative
+lines first. The loader warns at both bounds, and
+[`memory-sweep`](#maintenance) surfaces trims and promotion candidates
+when it's time to prune. A few high-value lines may run longer to carry an inline
 rule — see [File format](#file-format) — but that spends the same budget,
 so reserve it for the critical few.
 

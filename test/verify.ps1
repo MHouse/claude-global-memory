@@ -158,7 +158,16 @@ if ($null -eq $gitBash) {
     $filler = 1..205 | ForEach-Object { "- [e$_](x.md) -- filler" }
     Add-Content -Path (Join-Path $script:TH '.claude\memory\MEMORY.md') -Value ($filler -join "`n")
     $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart"}'
-    if ($o.Contains('WARNING:')) { Ok "loader: size warning past 200 entry lines" } else { No "loader: size warning missing" }
+    if ($o.Contains('lines (cap')) { Ok "loader: line warning past 200 entry lines" } else { No "loader: line warning missing" }
+    if ($o.Contains('preview')) { No "loader: byte warning fired on a small-byte index" } else { Ok "loader: byte warning not misfired" }
+    # byte budget: few-but-fat lines past ~9KB -> truncation-preview warning wins
+    Fresh-Home
+    Run | Out-Null
+    $fatTail = 'x' * 380
+    $fat = 1..25 | ForEach-Object { "- [fat$_](x.md) -- $fatTail" }
+    Add-Content -Path (Join-Path $script:TH '.claude\memory\MEMORY.md') -Value ($fat -join "`n")
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart"}'
+    if ($o.Contains('preview')) { Ok "loader: byte warning past ~9KB of entries" } else { No "loader: byte warning missing" }
 }
 
 Write-Host "== loader: preserves unrelated settings.json content =="
