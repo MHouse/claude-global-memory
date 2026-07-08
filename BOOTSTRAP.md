@@ -103,6 +103,11 @@ Behavior details, all covered by the test harness:
 - Output is a single JSON `hookSpecificOutput.additionalContext` object;
   the harness validates it with a real JSON parser, quotes and backslashes
   included.
+- The payload ends with an `INDEX-END (N lines, N bytes)` sentinel. The
+  truncation threshold is undocumented harness behavior and can move with any
+  CLI update, so the system detects truncation rather than only predicting
+  it: the CLAUDE.md snippet's fallback treats an index block with no final
+  `INDEX-END` line as truncated and reads the file instead.
 - The registration command is `bash "<absolute path to the script>"` with a
   10-second timeout. On Windows that's Git Bash — already a Claude Code
   prerequisite; note that PowerShell's bare `bash` resolves to the WSL stub,

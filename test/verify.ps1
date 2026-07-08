@@ -143,6 +143,10 @@ if ($null -eq $gitBash) {
     if ($parsed -and $parsed.hookSpecificOutput.hookEventName -eq 'SubagentStart' -and $parsed.hookSpecificOutput.additionalContext.Contains('loader test entry')) {
         Ok "loader: general-purpose gets valid JSON (quotes/backslash escaped)"
     } else { No "loader: general-purpose payload invalid JSON or missing entry" }
+    if ($parsed) {
+        $lastLine = @($parsed.hookSpecificOutput.additionalContext -split "`n")[-1]
+        if ($lastLine.StartsWith('INDEX-END (')) { Ok "loader: payload ends with the INDEX-END sentinel" } else { No "loader: INDEX-END sentinel missing from payload tail" }
+    }
     $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart","source":"startup"}'
     if ($o.Contains('Cross-project memory index')) { Ok "loader: SessionStart payload present" } else { No "loader: SessionStart payload missing" }
 }
@@ -251,6 +255,17 @@ foreach ($ev in @('SessionStart', 'SubagentStart')) {
     }
 }
 if ($allTen) { Ok "loader: registration canonical again" } else { No "loader: registration not canonical after -Force" }
+
+Write-Host "== loader: warning constants stay in lockstep with the docs =="
+# The bounds live in the hook script; every doc that states them must move
+# when they move. If a check here fails after you changed a constant, update
+# the listed files AND these needles.
+$hookSrc = Get-Content (Join-Path $repoRoot 'hooks\memory-loader.sh') -Raw
+if ($hookSrc -match "(?m)^max_entry_bytes=9000$") { Ok "constants: hook byte bound is 9000" } else { No "constants: hook byte bound changed -- update docs + these checks" }
+if ($hookSrc -match "(?m)^max_entry_lines=200$") { Ok "constants: hook line bound is 200" } else { No "constants: hook line bound changed -- update docs + these checks" }
+foreach ($doc in @('BOOTSTRAP.md', 'README.md', 'MEMORY.md.template', 'CLAUDE.md', 'skills\memory-sweep\SKILL.md', 'skills\closeout\SKILL.md')) {
+    if ((Get-Content (Join-Path $repoRoot $doc) -Raw) -match '~9(KB|,000)') { Ok "constants: $doc states the ~9KB bound" } else { No "constants: $doc missing the ~9KB bound" }
+}
 
 Write-Host "== loader: unparseable settings.json never touched =="
 Fresh-Home

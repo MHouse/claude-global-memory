@@ -83,6 +83,14 @@ ${payload}"
     printf 'memory-loader: %s\n' "$warning" >&2
 fi
 
+# Terminal sentinel: the harness truncates oversized injections silently and
+# its threshold is undocumented and version-dependent, so DETECT rather than
+# predict -- the CLAUDE.md snippet treats a payload whose final INDEX-END line
+# is missing as truncated and falls back to reading the file.
+payload="${payload}
+
+INDEX-END (${entry_lines} lines, ${entry_bytes} bytes)"
+
 # Emit exactly one JSON object; escape backslash, quote, tab; join with \n.
 # The failure mode of hand-rolled JSON is silent (HOOKS.md lesson) -- the
 # test harness pipes this output through a JSON parser.
