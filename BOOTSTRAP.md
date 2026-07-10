@@ -109,7 +109,12 @@ Behavior details, all covered by the test harness:
   truncation threshold is undocumented harness behavior and can move with any
   CLI update, so the system detects truncation rather than only predicting
   it: the CLAUDE.md snippet's fallback treats an index block with no final
-  `INDEX-END` line as truncated and reads the file instead.
+  `INDEX-END` line as truncated, reads the file instead, and tells the user.
+  When that alarm fires, re-measure the threshold with
+  `bash test/probe-truncation.sh` (manual and token-spending — it starts a
+  few headless sessions against synthetic indexes; deliberately not part of
+  `verify.sh`/CI) and re-calibrate `max_entry_bytes` plus the doc mentions
+  the lockstep greps in the harness list.
 - Optional config at `~/.claude/hooks/memory-loader.conf`, one supported key:
   `skip_agent_types="Explore Plan SomeNewLeanType"` — the value **replaces**
   the default (use a placeholder like `none` to skip no types). The conf is
@@ -322,6 +327,12 @@ That's it. Save memories as you work — by hand, or by asking Claude to
 save them — and the system fills itself.
 
 ## Maintenance (later, not now)
+
+If a session ever reports that the injected index lost its `INDEX-END`
+sentinel (the CLAUDE.md snippet tells Claude to say so), the harness's
+truncation threshold has likely moved with a CLI update — re-measure it
+with `bash test/probe-truncation.sh` and re-calibrate the loader's
+`max_entry_bytes` and the docs it's lockstepped with.
 
 Once the memory set passes ~10 entries or a few months of accumulation
 (no-op before that), run a consolidation pass periodically:
