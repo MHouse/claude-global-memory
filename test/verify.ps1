@@ -151,6 +151,30 @@ if ($null -eq $gitBash) {
     if ($o.Contains('Cross-project memory index')) { Ok "loader: SessionStart payload present" } else { No "loader: SessionStart payload missing" }
 }
 
+Write-Host "== loader: conf overrides the skip list; broken conf never kills injection =="
+$confPath = Join-Path $script:TH '.claude\hooks\memory-loader.conf'
+Set-Content -Path $confPath -Value 'skip_agent_types="Explore CustomLean"'   # Set-Content writes CRLF -- on purpose
+if ($null -eq $gitBash) {
+    Write-Host "  SKIP  loader: conf hook asserts (no Git Bash found)"
+} else {
+    $o = Invoke-LoaderHook '{"agent_type":"CustomLean","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "conf: added agent type skipped" } else { No "conf: added agent type not skipped" }
+    $o = Invoke-LoaderHook '{"agent_type":"Plan","hook_event_name":"SubagentStart"}'
+    if ($o -ne '') { Ok "conf: value replaces the default (Plan now injects)" } else { No "conf: default skip list still active despite conf" }
+    $o = Invoke-LoaderHook '{"agent_type":"Explore","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "conf: kept agent type still skipped" } else { No "conf: kept agent type not skipped" }
+    Set-Content -Path $confPath -Value 'this is ( not a conf'
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    if ($o -ne '') { Ok "conf: garbage conf ignored, injection alive" } else { No "conf: garbage conf killed injection" }
+    $o = Invoke-LoaderHook '{"agent_type":"Explore","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "conf: garbage conf -> defaults still apply" } else { No "conf: garbage conf broke the defaults" }
+}
+$confBefore = Get-Content $confPath -Raw
+$out = Run
+Hasnt "conf: bare re-run stays in sync with conf present" $out "DRIFT"
+if ((Get-Content $confPath -Raw) -eq $confBefore) { Ok "conf: bare run leaves conf untouched" } else { No "conf: bare run modified conf" }
+Remove-Item -LiteralPath $confPath -Force
+
 Write-Host "== loader: empty index injects nothing; oversized index warns =="
 Fresh-Home
 Run | Out-Null
@@ -199,10 +223,12 @@ if ($d.model -eq 'opus' -and
 } else { No "loader: settings merge damaged unrelated content" }
 
 Write-Host "== loader: uninstall is surgical + sticky; -InstallLoader re-enables =="
+Set-Content -Path (Join-Path $script:TH '.claude\hooks\memory-loader.conf') -Value 'skip_agent_types="Explore"'
 $out = Run -UninstallLoader
 Has    "loader: uninstall removes registration" $out "removed   memory-loader registration"
 NoFile "loader: script removed" (Join-Path $script:TH '.claude\hooks\memory-loader.sh')
 NoFile "loader: stamp removed"  (Join-Path $script:TH '.claude\hooks\.memory-loader.delivered')
+FileIs "loader: conf left in place by uninstall" (Join-Path $script:TH '.claude\hooks\memory-loader.conf')
 FileIs "loader: optout sentinel written" (Join-Path $script:TH '.claude\hooks\.memory-loader.optout')
 $d = Get-Content (Join-Path $script:TH '.claude\settings.json') -Raw | ConvertFrom-Json
 if ($d.hooks.PreToolUse[0].hooks[0].command -eq 'echo other-hook' -and
@@ -263,6 +289,7 @@ Write-Host "== loader: warning constants stay in lockstep with the docs =="
 $hookSrc = Get-Content (Join-Path $repoRoot 'hooks\memory-loader.sh') -Raw
 if ($hookSrc -match "(?m)^max_entry_bytes=9000$") { Ok "constants: hook byte bound is 9000" } else { No "constants: hook byte bound changed -- update docs + these checks" }
 if ($hookSrc -match "(?m)^max_entry_lines=200$") { Ok "constants: hook line bound is 200" } else { No "constants: hook line bound changed -- update docs + these checks" }
+if ($hookSrc -match '(?m)^skip_agent_types="Explore Plan"$') { Ok "constants: hook default skip list is Explore Plan" } else { No "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this needle" }
 foreach ($doc in @('BOOTSTRAP.md', 'README.md', 'MEMORY.md.template', 'CLAUDE.md', 'skills\memory-sweep\SKILL.md', 'skills\closeout\SKILL.md')) {
     if ((Get-Content (Join-Path $repoRoot $doc) -Raw) -match '~9(KB|,000)') { Ok "constants: $doc states the ~9KB bound" } else { No "constants: $doc missing the ~9KB bound" }
 }

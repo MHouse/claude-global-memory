@@ -41,7 +41,10 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
     `.delivered` stamp, installed **by default** (`--no-loader` / `-NoLoader`
     skips this run). One deliberate divergence from skill semantics: an
     unmodified-but-stale copy auto-updates on a bare run (the stamp proves no
-    user edit is lost); an edited copy still requires `--force`.
+    user edit is lost); an edited copy still requires `--force`. Runtime
+    config (the skip-list override) lives beside it in `memory-loader.conf` —
+    pure user territory that bootstrap never writes, stamps, or removes, so
+    configuring the loader never trips the stamp.
   - `~/.claude/settings.json`: bootstrap owns exactly the two memory-loader
     registration blocks under `hooks.SessionStart` / `hooks.SubagentStart`
     (identified by the command containing `/hooks/memory-loader.sh`).
