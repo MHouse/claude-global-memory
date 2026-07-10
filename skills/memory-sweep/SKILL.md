@@ -74,10 +74,13 @@ Present one batch, grouped:
 - **Injection-budget trims/reorder** — proposed line tightenings and imperative-lines-first moves from Step 2b, with the measured byte count.
 - **Promotions** — each drafted general entry, its destination + index line + one-line "why it crossed over," and the source entries it merges/retires.
 - **Demotions** — source + proposed destination.
+- **Store versioning** (only when `~/.claude/memory` is **not** a git repo) — one optional proposal to initialize local history, so sweeps and closeouts can checkpoint the store from then on: `git -C ~/.claude/memory init -b main`, a `.gitignore` with `*.bak`, a `.gitattributes` with `* -text` (git must never rewrite store bytes — the injection budget is byte-measured), then an initial snapshot commit. Local history only: **never add a remote, never push** — the store stays machine-local. Omit the item entirely when the store is already a repo.
 - **Recommendations** — other-project stores worth consolidating in-project.
 - **Deferred** — worktree-session stores left untouched.
 
 Present the batch in prose (each promotion's drafted entry beside its source entries — too long for picker labels), **state which you recommend** (high-confidence promotions, clear demotions) vs optional, then take the pick as one consolidated confirmation: tick what to apply, leave the rest; if there are more candidates than a single multi-select cleanly holds, group them **within that single prompt** (one round-trip — never sequential rounds) or take picks free-form. For each confirmed **promotion**: write the new cross-project entry, add its `MEMORY.md` index line, then retire the per-project originals and update their indices. Apply confirmed demotions. **An unticked item is a complete decline — no pushback, no re-asking.**
+
+After executing, if `~/.claude/memory` is a git repo (`git -C ~/.claude/memory rev-parse --git-dir` succeeds), commit the applied batch: `git -C ~/.claude/memory add -A`, then a one-line message like `memory-sweep: 2 promotions, 3 trims` — one commit per sweep, so the pass is diffable and reversible. Local history only: **never add a remote, never push** — the store stays machine-local. Skip silently when the store is not a git repo — the Store-versioning item above was the one offer, and an unticked offer gets no follow-up (a confirmed init's snapshot commit already captures the applied batch).
 
 ### Step 6: Summary
 
