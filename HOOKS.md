@@ -27,7 +27,8 @@ So bootstrap installs `~/.claude/hooks/memory-loader.sh` **by default** and
 registers it under both **SessionStart** (main sessions: startup / resume /
 clear / compact) and **SubagentStart** (subagents inherit CLAUDE.md but *not*
 SessionStart output; the script skips the lean, read-only Explore and Plan
-agent types). It injects the `## Entries` section of
+agent types — a default you override in `~/.claude/hooks/memory-loader.conf`,
+never by editing the managed script). It injects the `## Entries` section of
 `~/.claude/memory/MEMORY.md` — one script, two registrations, empirically
 verified to reach both main-session and subagent context (2026-07-07, CLI
 2.1.204). `--no-loader` skips it, `--uninstall-loader` removes it cleanly;

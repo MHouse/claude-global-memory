@@ -122,6 +122,26 @@ fi
 o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$hook")"
 case "$o" in *"Cross-project memory index"*) ok "loader: SessionStart payload present";; *) no "loader: SessionStart payload missing";; esac
 
+echo "== loader: conf overrides the skip list; broken conf never kills injection =="
+conffile="$TH/.claude/hooks/memory-loader.conf"
+printf 'skip_agent_types="Explore CustomLean"\r\n' > "$conffile"   # CRLF on purpose: Windows editors write it
+o="$(printf '%s' '{"agent_type":"CustomLean","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "conf: added agent type skipped"; else no "conf: added agent type not skipped"; fi
+o="$(printf '%s' '{"agent_type":"Plan","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -n "$o" ]; then ok "conf: value replaces the default (Plan now injects)"; else no "conf: default skip list still active despite conf"; fi
+o="$(printf '%s' '{"agent_type":"Explore","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "conf: kept agent type still skipped"; else no "conf: kept agent type not skipped"; fi
+printf 'this is ( not a conf\n' > "$conffile"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -n "$o" ]; then ok "conf: garbage conf ignored, injection alive"; else no "conf: garbage conf killed injection"; fi
+o="$(printf '%s' '{"agent_type":"Explore","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook")"
+if [ -z "$o" ]; then ok "conf: garbage conf -> defaults still apply"; else no "conf: garbage conf broke the defaults"; fi
+conf_before="$(cat "$conffile")"
+out="$(run)"
+hasnt "conf: bare re-run stays in sync with conf present" "$out" "DRIFT"
+if [ "$(cat "$conffile")" = "$conf_before" ]; then ok "conf: bare run leaves conf untouched"; else no "conf: bare run modified conf"; fi
+rm -f "$conffile"
+
 echo "== loader: empty index injects nothing; oversized index warns =="
 fresh_home
 run >/dev/null
@@ -157,10 +177,12 @@ json_ok "loader: unrelated keys and hooks preserved, ours appended" "$TH/.claude
   "assert d['model']=='opus'; assert d['hooks']['PreToolUse'][0]['hooks'][0]['command']=='echo other-hook'; cmds=[h['command'] for e in d['hooks']['SessionStart'] for h in e['hooks']]; assert 'echo existing-sessionstart' in cmds; assert any('memory-loader.sh' in c for c in cmds); assert len(d['hooks']['SessionStart'])==2"
 
 echo "== loader: uninstall is surgical + sticky; --install-loader re-enables =="
+printf 'skip_agent_types="Explore"\n' > "$TH/.claude/hooks/memory-loader.conf"
 out="$(run --uninstall-loader)"
 has    "loader: uninstall removes registration" "$out" "removed   memory-loader registration"
 nofile "loader: script removed" "$TH/.claude/hooks/memory-loader.sh"
 nofile "loader: stamp removed"  "$TH/.claude/hooks/.memory-loader.delivered"
+file   "loader: conf left in place by uninstall" "$TH/.claude/hooks/memory-loader.conf"
 file   "loader: optout sentinel written" "$TH/.claude/hooks/.memory-loader.optout"
 json_ok "loader: other hooks survive uninstall, empty event key dropped" "$TH/.claude/settings.json" \
   "assert d['hooks']['PreToolUse'][0]['hooks'][0]['command']=='echo other-hook'; assert [h['command'] for e in d['hooks']['SessionStart'] for h in e['hooks']]==['echo existing-sessionstart']; assert 'SubagentStart' not in d['hooks']"
@@ -208,6 +230,7 @@ echo "== loader: warning constants stay in lockstep with the docs =="
 # the listed files AND these needles.
 if grep -q '^max_entry_bytes=9000$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook byte bound is 9000"; else no "constants: hook byte bound changed -- update docs + these greps"; fi
 if grep -q '^max_entry_lines=200$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook line bound is 200"; else no "constants: hook line bound changed -- update docs + these greps"; fi
+if grep -q '^skip_agent_types="Explore Plan"$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook default skip list is Explore Plan"; else no "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this grep"; fi
 for _doc in BOOTSTRAP.md README.md MEMORY.md.template CLAUDE.md skills/memory-sweep/SKILL.md skills/closeout/SKILL.md; do
   if grep -Eq '~9(KB|,000)' "$repo_root/$_doc"; then ok "constants: $_doc states the ~9KB bound"; else no "constants: $_doc missing the ~9KB bound"; fi
 done

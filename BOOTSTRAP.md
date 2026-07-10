@@ -57,7 +57,7 @@ from the new canonical and offer to resync.
 | `~/.claude/memory/MEMORY.md` | Everything above `## Entries` | `## Entries` and everything below |
 | `~/.claude/CLAUDE.md` | The `## Cross-project memory` section (its H2 through the next H2 or EOF) | Everything outside that section |
 | `~/.claude/hooks/REGISTRY.md` | Everything above `## Registered hooks`, **plus** the single row whose first cell is `memory-loader` | All other rows below `## Registered hooks` |
-| `~/.claude/hooks/memory-loader.sh` | The **whole file** (default-on; `.delivered` stamp) | Nothing inside it — but bootstrap won't write *through* a symlink/junction, won't overwrite an edited copy without `--force`, and an **unmodified**-but-stale copy auto-updates on a bare run (the stamp proves no user edit is at risk) |
+| `~/.claude/hooks/memory-loader.sh` | The **whole file** (default-on; `.delivered` stamp) | Nothing inside it — but bootstrap won't write *through* a symlink/junction, won't overwrite an edited copy without `--force`, and an **unmodified**-but-stale copy auto-updates on a bare run (the stamp proves no user edit is at risk). Its optional `memory-loader.conf` sibling is pure user territory: bootstrap never writes or removes it |
 | `~/.claude/settings.json` | The two `memory-loader` registration blocks under `hooks.SessionStart` / `hooks.SubagentStart` (identified by the command containing `/hooks/memory-loader.sh`) | **Everything else in the file** — other keys, other events, other entries in the same arrays. Merged with a real JSON parser, atomic replace; a file that doesn't parse is never touched (WARN + manual recipe instead) |
 | `~/.claude/skills/<name>/SKILL.md` (each bundled skill) | The **whole file** (opt-in; present only after `--install-skills`) | Nothing inside it — but bootstrap won't write *through* a symlink/junction at that path, and won't overwrite a copy you edited without `--force` |
 
@@ -87,7 +87,9 @@ mechanically, registered under two events:
   `CLAUDE.md` but *not* SessionStart output. The script skips the lean agent
   types (`Explore`, `Plan`): they deliberately load no CLAUDE.md to stay
   token-lean, are read-only, and multiply injection cost under fan-out. The
-  skip list is a variable at the top of the script.
+  default skip list is a variable at the top of the script — but override it
+  in `memory-loader.conf` (below), never by editing the script: an edit marks
+  the whole-file surface user-modified and blocks auto-update.
 
 Behavior details, all covered by the test harness:
 
@@ -108,6 +110,13 @@ Behavior details, all covered by the test harness:
   CLI update, so the system detects truncation rather than only predicting
   it: the CLAUDE.md snippet's fallback treats an index block with no final
   `INDEX-END` line as truncated and reads the file instead.
+- Optional config at `~/.claude/hooks/memory-loader.conf`, one supported key:
+  `skip_agent_types="Explore Plan SomeNewLeanType"` — the value **replaces**
+  the default (use a placeholder like `none` to skip no types). The conf is
+  parsed, not sourced: a broken file is ignored (defaults apply, injection
+  never dies) and Windows CRLF is tolerated. It is user territory — bootstrap
+  never writes, stamps, or removes it, uninstall included — so configuring
+  the loader keeps the script pristine and auto-update flowing.
 - The registration command is `bash "<absolute path to the script>"` with a
   10-second timeout. On Windows that's Git Bash — already a Claude Code
   prerequisite; note that PowerShell's bare `bash` resolves to the WSL stub,

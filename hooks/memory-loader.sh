@@ -18,7 +18,10 @@
 
 # Lean agent types to skip: they deliberately load no CLAUDE.md to stay
 # token-lean, are read-only, and multiply injection cost under fan-out.
-# Keep in sync with the filter documented in BOOTSTRAP.md.
+# Keep in sync with the filter documented in BOOTSTRAP.md. This is the
+# DEFAULT -- override it in ~/.claude/hooks/memory-loader.conf (parsed
+# below), never by editing this file: an edit marks the managed script
+# user-modified and blocks auto-update (BOOTSTRAP.md, drift table).
 skip_agent_types="Explore Plan"
 
 # Warn when the injected index outgrows its budget. Two bounds:
@@ -43,6 +46,24 @@ case "$event" in
     *) exit 0 ;;
 esac
 
+# Git Bash launched outside a login shell may lack HOME; fall back to the
+# Windows profile.
+home_dir="${HOME:-${USERPROFILE:-}}"
+[ -n "$home_dir" ] || exit 0
+
+# Optional user config, one supported key:
+#   skip_agent_types="Explore Plan SomeNewLeanType"
+# The value REPLACES the default above (use a placeholder like "none" to skip
+# no types). Parsed -- not sourced -- so a broken conf can't kill injection
+# and Windows CRLF is tolerated. The conf is user territory: bootstrap never
+# writes, stamps, force-overwrites, or uninstalls it, which is the point --
+# configuring the loader here keeps this script pristine and auto-updating.
+conf="${home_dir}/.claude/hooks/memory-loader.conf"
+if [ -f "$conf" ]; then
+    conf_skip=$(sed -n 's/^[[:space:]]*skip_agent_types=//p' "$conf" | tail -n 1 | tr -d '"\047\r')
+    [ -n "$conf_skip" ] && skip_agent_types="$conf_skip"
+fi
+
 # SubagentStart carries agent_type; if a SessionStart payload ever carries one
 # (SDK contexts), the same skip applies.
 agent_type=$(field agent_type)
@@ -52,10 +73,6 @@ if [ -n "$agent_type" ]; then
     done
 fi
 
-# Git Bash launched outside a login shell may lack HOME; fall back to the
-# Windows profile.
-home_dir="${HOME:-${USERPROFILE:-}}"
-[ -n "$home_dir" ] || exit 0
 index="${home_dir}/.claude/memory/MEMORY.md"
 [ -f "$index" ] || exit 0
 
