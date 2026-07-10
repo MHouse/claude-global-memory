@@ -148,6 +148,8 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 ```
 
+**Checkpoint the cross-project store.** If `~/.claude/memory` is a git repo (`git -C ~/.claude/memory rev-parse --git-dir` succeeds) and `git -C ~/.claude/memory status --porcelain` shows pending changes, commit them all: `git -C ~/.claude/memory add -A`, then a one-line message naming the project and what changed (e.g. `closeout: claude-global-memory - 2 saves, 1 trim`). This checkpoints the whole session's saves — ad-hoc mid-session writes included, not just Step 9 picks — so whole-file index writes are recoverable and sweeps are diffable. Local history only: **never add a remote, never push** — the store stays machine-local. Skip in one line when the store is not a git repo.
+
 Don't propose new work in the summary — this is closing out, not opening up.
 
 ## Important rules

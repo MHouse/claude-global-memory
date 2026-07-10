@@ -79,6 +79,8 @@ Present one batch, grouped:
 
 Present the batch in prose (each promotion's drafted entry beside its source entries — too long for picker labels), **state which you recommend** (high-confidence promotions, clear demotions) vs optional, then take the pick as one consolidated confirmation: tick what to apply, leave the rest; if there are more candidates than a single multi-select cleanly holds, group them **within that single prompt** (one round-trip — never sequential rounds) or take picks free-form. For each confirmed **promotion**: write the new cross-project entry, add its `MEMORY.md` index line, then retire the per-project originals and update their indices. Apply confirmed demotions. **An unticked item is a complete decline — no pushback, no re-asking.**
 
+After executing, if `~/.claude/memory` is a git repo (`git -C ~/.claude/memory rev-parse --git-dir` succeeds), commit the applied batch: `git -C ~/.claude/memory add -A`, then a one-line message like `memory-sweep: 2 promotions, 3 trims` — one commit per sweep, so the pass is diffable and reversible. Local history only: **never add a remote, never push** — the store stays machine-local. Skip silently when the store is not a git repo.
+
 ### Step 6: Summary
 
 Report: stores inventoried; what the delegated `consolidate-memory` pass changed; promotions/demotions applied; recommendations made; what was deferred. Don't open new work.
