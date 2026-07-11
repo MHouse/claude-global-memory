@@ -142,6 +142,53 @@ hasnt "conf: bare re-run stays in sync with conf present" "$out" "DRIFT"
 if [ "$(cat "$conffile")" = "$conf_before" ]; then ok "conf: bare run leaves conf untouched"; else no "conf: bare run modified conf"; fi
 rm -f "$conffile"
 
+echo "== loader: fold -- subagents get above-fold only; strict marker grammar =="
+fresh_home
+run >/dev/null
+hook="$TH/.claude/hooks/memory-loader.sh"
+mem="$TH/.claude/memory/MEMORY.md"
+printf -- '- [above entry](a.md) -- ambient\n<!-- fold -->\n- [below entry](b.md) -- tail\n- [below two](c.md) -- tail2\n' >> "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: subagent gets above-fold" "$o" "above entry"
+hasnt "fold: subagent does not get below-fold" "$o" "below entry"
+has   "fold: segment sentinel carries the pointer" "$o" "lines below the fold -- read ~/.claude/memory/MEMORY.md"
+if [ -n "$py" ]; then
+  if printf '%s' "$o" | "$py" -c "import json,sys; c=json.load(sys.stdin)['hookSpecificOutput']['additionalContext']; assert c.splitlines()[-1].startswith('INDEX-END (')" >/dev/null 2>&1; then
+    ok "fold: segment sentinel keeps the stable prefix (valid JSON)"
+  else
+    no "fold: segment sentinel broke the INDEX-END prefix contract"
+  fi
+fi
+o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: main session still gets the full index" "$o" "below two"
+hasnt "fold: literal marker stripped from full payload" "$o" "fold -->"
+hasnt "fold: main sentinel not segment-aware" "$o" "below the fold"
+o="$(printf '%s' '{"agent_type":"Explore","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+if [ -z "$o" ]; then ok "fold: skip list still wins before fold work"; else no "fold: Explore not skipped with marker present"; fi
+out="$(run)"
+hasnt "fold: bare re-run reports no DRIFT with marker present" "$out" "DRIFT"
+run --force >/dev/null
+if [ "$(grep -c '^<!-- fold -->$' "$mem")" -eq 1 ] && grep -q 'below two' "$mem"; then ok "fold: marker + tail survive bare and --force runs"; else no "fold: bootstrap disturbed the marker or tail"; fi
+printf '# H\n\n## Entries\n\n- [inline entry](y.md) -- mentions <!-- fold --> inline\n- [tail entry](t.md) -- t\n' > "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: embedded marker text is data (tail still injected)" "$o" "tail entry"
+hasnt "fold: no phantom segment sentinel" "$o" "below the fold"
+printf '# H\n\n## Entries\n\n- [a one](a.md) -- a\n   <!-- fold -->   \n- [m one](m.md) -- mid\n<!-- fold -->\n- [t one](t.md) -- tail\n' > "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: whitespace-padded marker honored" "$o" "a one"
+hasnt "fold: first marker wins (mid withheld)" "$o" "m one"
+has   "fold: withheld count spans to the tail" "$o" "3 lines below the fold"
+printf '# H\n\n## Entries\n<!-- fold -->\n- [t only](t.md) -- t\n' > "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: empty above-fold still emits pointer sentinel" "$o" "INDEX-END (0 lines, 0 bytes;"
+printf '# H\n\n## Entries\n\n- [only entry](o.md) -- o\n<!-- fold -->\n' > "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: empty tail withholds nothing" "$o" "only entry"
+hasnt "fold: empty tail -> plain sentinel" "$o" "below the fold"
+{ printf '# H\n\n## Entries\n\n'; fatf="$(printf 'y%.0s' $(seq 1 380))"; for _i in $(seq 1 25); do printf -- '- [af%d](x.md) -- %s\n' "$_i" "$fatf"; done; printf -- '<!-- fold -->\n- [tail z](z.md) -- z\n'; } > "$mem"
+o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: oversized above-fold warns by segment name" "$o" "ABOVE-FOLD segment alone"
+
 echo "== loader: empty index injects nothing; oversized index warns =="
 fresh_home
 run >/dev/null
@@ -231,6 +278,9 @@ echo "== loader: warning constants stay in lockstep with the docs =="
 if grep -q '^max_entry_bytes=9000$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook byte bound is 9000"; else no "constants: hook byte bound changed -- update docs + these greps"; fi
 if grep -q '^max_entry_lines=200$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook line bound is 200"; else no "constants: hook line bound changed -- update docs + these greps"; fi
 if grep -q '^skip_agent_types="Explore Plan"$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook default skip list is Explore Plan"; else no "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this grep"; fi
+for _doc in hooks/memory-loader.sh BOOTSTRAP.md MEMORY.md.template; do
+  if grep -qF -- '<!-- fold -->' "$repo_root/$_doc"; then ok "constants: $_doc states the fold marker"; else no "constants: $_doc missing the '<!-- fold -->' marker literal"; fi
+done
 for _doc in BOOTSTRAP.md README.md MEMORY.md.template CLAUDE.md skills/memory-sweep/SKILL.md skills/closeout/SKILL.md; do
   if grep -Eq '~9(KB|,000)' "$repo_root/$_doc"; then ok "constants: $_doc states the ~9KB bound"; else no "constants: $_doc missing the ~9KB bound"; fi
 done

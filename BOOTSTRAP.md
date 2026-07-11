@@ -115,6 +115,20 @@ Behavior details, all covered by the test harness:
   few headless sessions against synthetic indexes; deliberately not part of
   `verify.sh`/CI) and re-calibrate `max_entry_bytes` plus the doc mentions
   the lockstep greps in the harness list.
+- **The fold** (optional): a standalone `<!-- fold -->` line inside
+  `## Entries` splits the index into an ambient above-fold segment and an
+  on-demand tail. With a marker present, **SubagentStart** injections carry
+  the above-fold segment only and the sentinel gains a pointer —
+  `INDEX-END (N lines, N bytes; M lines below the fold -- read
+  ~/.claude/memory/MEMORY.md)` — same stable prefix. Main sessions still get
+  the full index (the marker line itself is stripped; byte-budget
+  auto-degrade for main sessions is fold stage 2). Grammar is strict: the
+  marker is a whole line (surrounding whitespace and CRLF tolerated); marker
+  text inside an entry line is data; the first marker wins and extras are
+  reported on stderr; a marker with an empty tail withholds nothing. In fold
+  mode the byte warning measures the **above-fold segment** and names it.
+  The marker lives in user territory — bootstrap never writes, moves, or
+  removes it.
 - Optional config at `~/.claude/hooks/memory-loader.conf`, one supported key:
   `skip_agent_types="Explore Plan SomeNewLeanType"` — the value **replaces**
   the default (use a placeholder like `none` to skip no types). The conf is

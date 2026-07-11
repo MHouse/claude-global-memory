@@ -76,7 +76,17 @@ of injections past ~10k characters, so the loader warns at ~9KB of
 entries (and past ~200 lines). **Keep promoted imperative lines at the
 top of `## Entries`** — the preview keeps the head, so top position
 preserves the always-on guarantee even when the index outgrows the
-budget. On a machine without the hook, the global CLAUDE.md carries one
+budget.
+
+Past what trimming can fix, there is **the fold**: an optional
+standalone `<!-- fold -->` line inside `## Entries`. Above it: ambient
+rules and high-value routers, injected everywhere. Below it: the long
+tail — withheld from subagents, which get a pointer in the `INDEX-END`
+sentinel instead and read the file on demand. No marker = full
+injection everywhere. The marker is yours: bootstrap never writes,
+moves, or removes it.
+
+On a machine without the hook, the global CLAUDE.md carries one
 fallback line: read this file before proceeding. When a rule is
 destructive *and* mechanically matchable, a `PreToolUse` guardrail hook
 is the heavier action-point mechanism — for *when* that's justified over
