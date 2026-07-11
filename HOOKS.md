@@ -29,16 +29,19 @@ clear / compact) and **SubagentStart** (subagents inherit CLAUDE.md but *not*
 SessionStart output; the script skips the lean, read-only Explore and Plan
 agent types — a default you override in `~/.claude/hooks/memory-loader.conf`,
 never by editing the managed script). It injects the `## Entries` section of
-`~/.claude/memory/MEMORY.md` — one script, two registrations, empirically
-verified to reach both main-session and subagent context (2026-07-07, CLI
-2.1.204). `--no-loader` skips it, `--uninstall-loader` removes it cleanly;
-see BOOTSTRAP.md.
+`~/.claude/memory/MEMORY.md` — and when a `<!-- fold -->` marker splits the
+index, subagents (and main sessions past the byte budget) get the ambient
+above-fold segment plus a sentinel pointer to the withheld tail — one script,
+two registrations, empirically verified to reach both main-session and
+subagent context (2026-07-07, CLI 2.1.204). `--no-loader` skips it,
+`--uninstall-loader` removes it cleanly; see BOOTSTRAP.md.
 
 What makes it a distinct category from every hook below:
 
-- **It carries no facts.** It injects the index verbatim; the index stays the
-  single source of truth, so the admission policy's duplication concerns
-  don't arise.
+- **It carries no facts.** It injects the index (or its above-fold segment)
+  unmodified, adding nothing editorial of its own; the index stays the single
+  source of truth, so the admission policy's duplication concerns don't
+  arise.
 - **It's infrastructure, not enforcement.** Removing it reverts the layer to
   instruction-based loading (the CLAUDE.md fallback line) — it doesn't make
   anything safer or less safe at an action point.
@@ -67,7 +70,10 @@ instead:
 5. **No general mechanism would enforce it at the right moment** — with the
    memory-loader in place, the index line is already in context; if the
    failure was "the index never loaded," that's the loader's job, and it's
-   fixed. A guardrail is justified only for the residual class: the line was
+   fixed. (The fold doesn't reopen this: imperative rules belong above the
+   marker, where subagents still receive them — demoting a line below the
+   fold deliberately trades away its ambient guarantee.) A guardrail is
+   justified only for the residual class: the line was
    in context and the agent still didn't dereference or apply it at the
    action point. For that class a broader loader is a placebo — enforcement
    has to sit on the tool call itself.
