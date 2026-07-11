@@ -272,7 +272,10 @@ for all. Re-sync on demand with `--force`; remove with `--uninstall-skills`.
   `consolidate-memory` (run on the cross-project store), inheriting that skill's
   behavior as it evolves. It also owns the injection-budget response: fold
   moves and trims by default, graduation to a skill only for runbook-shaped or
-  genuinely clustered knowledge. Promotions are proposed, never auto-applied.
+  genuinely clustered knowledge. And it maintains the **promoted-rules tier**
+  (`~/.claude/rules/memory/`): settled, universal directives elevated from
+  feedback memories to always-on rules — admission policy, rewrite recipe, and
+  ledger in [RULES.md](RULES.md). Promotions are proposed, never auto-applied.
 - **`/consolidate-memory` — single-directory, external.** The
   [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
   skill is the deep per-*directory* consolidation engine: merge duplicates,

@@ -88,6 +88,12 @@ truncation). Whatever is withheld is announced by a pointer in the
 full injection everywhere. The marker is yours: bootstrap never
 writes, moves, or removes it.
 
+Past the imperative line sits one more rung: a **settled, universal**
+directive whose nuance won't fit one line can be promoted to an
+always-on rules file under `~/.claude/rules/memory/` — proposed by
+`memory-sweep`, governed by `RULES.md` in the claude-global-memory
+repo, never ad hoc.
+
 On a machine without the hook, the cross-project rule
 (`~/.claude/rules/cross-project-memory.md`) carries one fallback
 line: read this file before proceeding. When a rule is

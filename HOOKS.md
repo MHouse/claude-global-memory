@@ -3,9 +3,12 @@
 **This scaffold ships exactly one hook — the memory-loader — and bootstrap
 touches `settings.json` only to register it.** Everything else stays out: the
 default way to raise the salience of a memory is an *imperative index line*
-(see `MEMORY.md.template` → "Index-line salience"). A `PreToolUse` guardrail
-hook is the heavier alternative, reserved for the few cases where an index
-line provably can't do the job at the moment of need.
+(see `MEMORY.md.template` → "Index-line salience"). Between the index line
+and a hook sits the promoted-rules tier (`RULES.md`): the full directive
+always-on — the only escalation that exists for response-formation misses,
+where no tool call ever fires a hook. A `PreToolUse` guardrail
+hook is the heaviest step, reserved for the few cases where neither an index
+line nor a rule can do the job at the moment of need.
 
 This file documents the loader (and why it's a different category), *when* a
 guardrail hook is justified, *how* to add one safely, and how to keep the
@@ -76,8 +79,11 @@ instead:
    fold deliberately trades away its ambient guarantee.) A guardrail is
    justified only for the residual class: the line was
    in context and the agent still didn't dereference or apply it at the
-   action point. For that class a broader loader is a placebo — enforcement
-   has to sit on the tool call itself.
+   action point. Split that class once more: a "didn't dereference" miss is
+   fixed cheaper by a promoted rule (`RULES.md` — the full text becomes
+   ambient, nothing left to dereference); only "didn't apply at the tool
+   call" earns enforcement. For that last class a broader loader is a
+   placebo — enforcement has to sit on the tool call itself.
 6. **Reviewed as infrastructure, not memory** — governed like code, with a
    removal criterion.
 
