@@ -284,7 +284,7 @@ echo "== loader: warning constants stay in lockstep with the docs =="
 if grep -q '^max_entry_bytes=9000$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook byte bound is 9000"; else no "constants: hook byte bound changed -- update docs + these greps"; fi
 if grep -q '^max_entry_lines=200$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook line bound is 200"; else no "constants: hook line bound changed -- update docs + these greps"; fi
 if grep -q '^skip_agent_types="Explore Plan"$' "$repo_root/hooks/memory-loader.sh"; then ok "constants: hook default skip list is Explore Plan"; else no "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this grep"; fi
-for _doc in hooks/memory-loader.sh BOOTSTRAP.md MEMORY.md.template; do
+for _doc in hooks/memory-loader.sh BOOTSTRAP.md MEMORY.md.template skills/memory-sweep/SKILL.md skills/closeout/SKILL.md; do
   if grep -qF -- '<!-- fold -->' "$repo_root/$_doc"; then ok "constants: $_doc states the fold marker"; else no "constants: $_doc missing the '<!-- fold -->' marker literal"; fi
 done
 for _doc in BOOTSTRAP.md README.md MEMORY.md.template CLAUDE.md skills/memory-sweep/SKILL.md skills/closeout/SKILL.md; do

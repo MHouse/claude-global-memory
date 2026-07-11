@@ -44,7 +44,13 @@ Loader-specific knowledge `consolidate-memory` doesn't have: the cross-project i
 awk '/^## Entries[[:space:]]*$/{f=1;next} f' ~/.claude/memory/MEMORY.md | wc -c
 ```
 
-- **Past ~9,000 bytes** (the loader warns at the same bound): propose trims — tighten verbose index lines back to routers (the linked entry body holds the detail), merge near-duplicate entries, demote low-value ones. Target comfortably under the bound, not just barely.
+If a `<!-- fold -->` marker exists, also measure the above-fold segment — the always-resident cost (subagents get only this; main sessions too once the full index is past the budget):
+
+```bash
+awk '/^## Entries[[:space:]]*$/{f=1;next} f && /^[[:space:]]*<!-- fold -->[[:space:]]*$/{exit} f' ~/.claude/memory/MEMORY.md | wc -c
+```
+
+- **Past ~9,000 bytes** (the loader warns at the same bound): the default proposal is a **fold move** — demote long-tail entries below a standalone `<!-- fold -->` line inside `## Entries`, proposing the marker itself if absent (ambient rules + high-value routers above; everything else below). A fold move buys budget without deleting anything: the tail stays in the index file, one announced file-read away. Trims still apply — tighten verbose index lines back to routers, merge near-duplicates — but demotion below the fold beats deletion. Target an above-fold segment comfortably around ~4–6KB, not just barely under the bound.
 - **Ordering:** the preview keeps the head, so promoted **imperative** lines (see the index's "Index-line salience") belong at the top of `## Entries`. If any imperative line sits below the first ~2KB, propose moving it up.
 - **Graduation to a skill — the exception, never the default.** Two shapes earn it, and only these: an entry that is **runbook-shaped** (a multi-step procedure invoked by intent — "apply the branch-protection standard" — not knowledge needed ambiently), or a **real cluster** — **≥3 related entries** collapsing into one skill, where one description line genuinely replaces several index lines. If you can't name the third entry, it's not a cluster. Everything else that's merely task-retrievable stays in the store and gets demotion, because every skill costs an always-resident description line and probabilistic triggering — one-entry-one-skill just moves the index's bytes to a worse neighborhood. Propose a graduation with the draft skill name + description and the entries/index lines it would retire.
 
@@ -72,7 +78,7 @@ For per-project stores other than the current project's: you are outside their r
 Present one batch, grouped:
 
 - **Delegated (already done)** — what `consolidate-memory` reported for the cross-project store.
-- **Injection-budget trims/reorder** — proposed line tightenings and imperative-lines-first moves from Step 2b, with the measured byte count.
+- **Injection-budget fold moves/trims/reorder** — proposed `<!-- fold -->` placement or cross-marker moves, line tightenings, and imperative-lines-first moves from Step 2b, with the measured byte counts (full and above-fold). Fold moves are proposals like everything else here — the marker is user territory, never moved without a tick.
 - **Promotions** — each drafted general entry, its destination + index line + one-line "why it crossed over," and the source entries it merges/retires.
 - **Demotions** — source + proposed destination.
 - **Graduations** (rare — Step 2b's bar) — the drafted skill name + description, the entries it absorbs, and the index lines it retires. For a confirmed one: draft the SKILL.md, confirm its home with the user first (skill setups vary — plain `~/.claude/skills/` vs a managed skills repo), then retire the absorbed entries and their index lines.
