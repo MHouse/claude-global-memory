@@ -350,7 +350,7 @@ $hookSrc = Get-Content (Join-Path $repoRoot 'hooks\memory-loader.sh') -Raw
 if ($hookSrc -match "(?m)^max_entry_bytes=9000$") { Ok "constants: hook byte bound is 9000" } else { No "constants: hook byte bound changed -- update docs + these checks" }
 if ($hookSrc -match "(?m)^max_entry_lines=200$") { Ok "constants: hook line bound is 200" } else { No "constants: hook line bound changed -- update docs + these checks" }
 if ($hookSrc -match '(?m)^skip_agent_types="Explore Plan"$') { Ok "constants: hook default skip list is Explore Plan" } else { No "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this needle" }
-foreach ($doc in @('hooks\memory-loader.sh', 'BOOTSTRAP.md', 'MEMORY.md.template')) {
+foreach ($doc in @('hooks\memory-loader.sh', 'BOOTSTRAP.md', 'MEMORY.md.template', 'skills\memory-sweep\SKILL.md', 'skills\closeout\SKILL.md')) {
     if ((Get-Content (Join-Path $repoRoot $doc) -Raw).Contains('<!-- fold -->')) { Ok "constants: $doc states the fold marker" } else { No "constants: $doc missing the '<!-- fold -->' marker literal" }
 }
 foreach ($doc in @('BOOTSTRAP.md', 'README.md', 'MEMORY.md.template', 'CLAUDE.md', 'skills\memory-sweep\SKILL.md', 'skills\closeout\SKILL.md')) {
