@@ -120,9 +120,11 @@ Behavior details, all covered by the test harness:
   on-demand tail. With a marker present, **SubagentStart** injections carry
   the above-fold segment only and the sentinel gains a pointer —
   `INDEX-END (N lines, N bytes; M lines below the fold -- read
-  ~/.claude/memory/MEMORY.md)` — same stable prefix. Main sessions still get
-  the full index (the marker line itself is stripped; byte-budget
-  auto-degrade for main sessions is fold stage 2). Grammar is strict: the
+  ~/.claude/memory/MEMORY.md)` — same stable prefix. Main sessions get the
+  full index (the marker line itself is stripped) while it fits the ~9KB
+  byte budget; past that they **auto-degrade** to the above-fold segment —
+  a deliberate partial injection with the pointer sentinel, instead of a
+  silent harness truncation. Grammar is strict: the
   marker is a whole line (surrounding whitespace and CRLF tolerated); marker
   text inside an entry line is data; the first marker wins and extras are
   reported on stderr; a marker with an empty tail withholds nothing. In fold

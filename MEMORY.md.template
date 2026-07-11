@@ -81,10 +81,12 @@ budget.
 Past what trimming can fix, there is **the fold**: an optional
 standalone `<!-- fold -->` line inside `## Entries`. Above it: ambient
 rules and high-value routers, injected everywhere. Below it: the long
-tail — withheld from subagents, which get a pointer in the `INDEX-END`
-sentinel instead and read the file on demand. No marker = full
-injection everywhere. The marker is yours: bootstrap never writes,
-moves, or removes it.
+tail — withheld from subagents always, and from main sessions once the
+full index outgrows the ~9KB budget (auto-degrade beats silent harness
+truncation). Whatever is withheld is announced by a pointer in the
+`INDEX-END` sentinel and read from this file on demand. No marker =
+full injection everywhere. The marker is yours: bootstrap never
+writes, moves, or removes it.
 
 On a machine without the hook, the global CLAUDE.md carries one
 fallback line: read this file before proceeding. When a rule is
