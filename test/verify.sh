@@ -188,6 +188,12 @@ hasnt "fold: empty tail -> plain sentinel" "$o" "below the fold"
 { printf '# H\n\n## Entries\n\n'; fatf="$(printf 'y%.0s' $(seq 1 380))"; for _i in $(seq 1 25); do printf -- '- [af%d](x.md) -- %s\n' "$_i" "$fatf"; done; printf -- '<!-- fold -->\n- [tail z](z.md) -- z\n'; } > "$mem"
 o="$(printf '%s' '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
 has   "fold: oversized above-fold warns by segment name" "$o" "ABOVE-FOLD segment alone"
+{ printf '# H\n\n## Entries\n\n- [head rule](h.md) -- imperative\n<!-- fold -->\n'; for _i in $(seq 1 25); do printf -- '- [tail%d](x.md) -- %s\n' "$_i" "$fatf"; done; } > "$mem"
+o="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' | HOME="$TH" bash "$hook" 2>/dev/null)"
+has   "fold: over-budget main auto-degrades to above-fold" "$o" "head rule"
+hasnt "fold: degraded main withholds the tail" "$o" "tail7"
+has   "fold: degraded main sentinel carries the pointer" "$o" "lines below the fold"
+hasnt "fold: degraded main under-budget segment gets no warning" "$o" "WARNING"
 
 echo "== loader: empty index injects nothing; oversized index warns =="
 fresh_home

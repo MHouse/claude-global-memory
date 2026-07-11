@@ -102,10 +102,20 @@ fi
 
 # Mode selection: with a marker, subagents always get the ambient segment
 # only -- they multiply injection cost under fan-out and inherit the global
-# CLAUDE.md retrieval fallback. Main sessions keep the full index (byte-budget
-# auto-degrade is fold stage 2).
+# CLAUDE.md retrieval fallback. Main sessions get the full index while it
+# fits the byte budget; past it they auto-degrade to the ambient segment
+# instead of letting the harness truncate silently (the sentinel then says
+# what was withheld, and the CLAUDE.md snippet knows partial != truncated).
+full_inject=$(printf '%s\n' "$entries" | grep -vE "$fold_re")
 mode=full
-[ -n "$fold_line" ] && [ "$event" = "SubagentStart" ] && mode=fold
+if [ -n "$fold_line" ]; then
+    if [ "$event" = "SubagentStart" ]; then
+        mode=fold
+    elif [ "$(printf '%s' "$full_inject" | wc -c | tr -d '[:space:]')" -gt "$max_entry_bytes" ]; then
+        mode=fold
+        printf 'memory-loader: index past the %s-byte budget; injecting above-fold only\n' "$max_entry_bytes" >&2
+    fi
+fi
 
 if [ "$mode" = "fold" ]; then
     inject="$above"
@@ -118,9 +128,9 @@ if [ "$mode" = "fold" ]; then
     fi
     below_lines=$(printf '%s\n' "$below" | wc -l | tr -d '[:space:]')
 else
-    # Strip marker lines from a full injection -- they are structure, not
+    # Marker lines are stripped from a full injection -- structure, not
     # content. Without a marker this is the identity transform.
-    inject=$(printf '%s\n' "$entries" | grep -vE "$fold_re")
+    inject="$full_inject"
     entry_lines=$(printf '%s\n' "$inject" | wc -l | tr -d '[:space:]')
     entry_bytes=$(printf '%s' "$inject" | wc -c | tr -d '[:space:]')
 fi

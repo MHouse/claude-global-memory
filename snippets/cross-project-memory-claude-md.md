@@ -27,8 +27,9 @@ tell the user — the harness truncation threshold may have moved with a
 CLI update (re-measure with `test/probe-truncation.sh` in the
 claude-global-memory clone). The block can also be deliberately
 partial: an `INDEX-END` line noting `N lines below the fold` means the
-index's long tail was withheld on purpose (subagents get only the
-above-fold segment) — partial, not truncated. When the visible index
+index's long tail was withheld on purpose (subagents always get only
+the above-fold segment; main sessions too once the index outgrows the
+injection budget) — partial, not truncated. When the visible index
 doesn't answer a cross-project tool/preference question, read
 `~/.claude/memory/MEMORY.md` and then the specific entry files it
 points to — index-first, not a blind grep of the store — before

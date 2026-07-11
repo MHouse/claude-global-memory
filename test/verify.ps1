@@ -226,6 +226,13 @@ if ($null -eq $gitBash) {
     Set-Content -Path $mem -Value ($fatF -join "`n")
     $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
     Has   "fold: oversized above-fold warns by segment name" $o "ABOVE-FOLD segment alone"
+    $degF = @('# H', '', '## Entries', '', '- [head rule](h.md) -- imperative', '<!-- fold -->') + (1..25 | ForEach-Object { "- [tail$_](x.md) -- $fatTailF" })
+    Set-Content -Path $mem -Value ($degF -join "`n")
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart","source":"startup"}'
+    Has   "fold: over-budget main auto-degrades to above-fold" $o "head rule"
+    Hasnt "fold: degraded main withholds the tail" $o "tail7"
+    Has   "fold: degraded main sentinel carries the pointer" $o "lines below the fold"
+    Hasnt "fold: degraded main under-budget segment gets no warning" $o "WARNING"
 }
 
 Write-Host "== loader: empty index injects nothing; oversized index warns =="
