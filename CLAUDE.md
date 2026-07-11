@@ -90,9 +90,9 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   Markdown: the memory store, the cross-project rule, the hooks registry,
   and — only with the explicit opt-in `--install-skills` flag — copies of
   the bundled skill files.
-- **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md, the
-  templates, and the bootstrap scripts describe one system. A behavior
-  change in the scripts usually needs a doc change too.
+- **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md,
+  RULES.md, the templates, and the bootstrap scripts describe one system. A
+  behavior change in the scripts usually needs a doc change too.
 
 ## Conventions
 
