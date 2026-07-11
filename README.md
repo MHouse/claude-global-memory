@@ -23,7 +23,11 @@ package also ships **optional** maintenance skills,
 only on request (`--install-skills`). They assume only plain Markdown plus git and treat any
 richer tooling as optional, so they keep the minimalism intact. The scaffold sets
 the store up; the bundled skills keep it healthy — `closeout` at session end,
-`memory-sweep` for periodic cross-store consolidation and promotion. See [Maintenance](#maintenance).
+`memory-sweep` for periodic cross-store consolidation and promotion. Both
+checkpoint the store into **local git history** when it's a git repo
+(`memory-sweep` offers the one-time `git init`), so whole-file index rewrites
+are recoverable and sweeps are diffable — history, never sync. See
+[Maintenance](#maintenance).
 
 ## Relationship to built-in `/remember`
 
@@ -75,7 +79,7 @@ borrows from them. Where it fits:
 |---|---|---|---|---|
 | [Pawel Huryn](https://substack.com/@huryn/note/c-216337711) | single `memory.md` | session-start instruction | — | — |
 | [John Conneely](https://www.youngleaders.tech/p/how-i-finally-sorted-my-claude-code-memory) | dir + `memory.md` + `tools/` + `domain/` | session-start + `PreToolUse` hooks | yes (Python + shell wrapper, ~5ms / tool call) | — |
-| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | mechanical injection: `SessionStart` + `SubagentStart` hooks (default-on, opt-out) | memory-loader by default; guardrails opt-in (see [`HOOKS.md`](HOOKS.md)) | `name` / `description` / `type` |
+| **this repo** | dir + `MEMORY.md` + `tools/` + `domain/` | mechanical injection: `SessionStart` + `SubagentStart` hooks (default-on, opt-out); optional two-tier fold past the byte budget | memory-loader by default; guardrails opt-in (see [`HOOKS.md`](HOOKS.md)) | `name` / `description` / `type` |
 | [claude-mem](https://github.com/thedotmack/claude-mem) | SQLite + worker daemon | hooks + MCP queries | yes | n/a |
 
 - **vs [Huryn](https://substack.com/@huryn/note/c-216337711)** — Huryn's
@@ -102,6 +106,10 @@ borrows from them. Where it fits:
   different scale entirely: pick it for auto-capture, semantic search, and
   a local worker; pick this for plain Markdown you can `cat` and audit,
   with no background process. The trade is auto-magic for auditability.
+  The fold narrows the gap from the Markdown side: the always-resident tier
+  stays small and curated while the long tail loads on demand — retrieval by
+  announced file-read instead of by query engine, viable to a few hundred
+  entries before the comparison gets interesting again.
 
 ## File format
 
@@ -246,16 +254,20 @@ for all. Re-sync on demand with `--force`; remove with `--uninstall-skills`.
 
 - **`closeout` — session-end, bundled, opt-in.** A structured end-of-session
   sweep over the memory and documentation systems that drift between sessions:
-  broken index links, stale or over-long entries, repo-doc drift, git hygiene.
-  Runs when you signal "wrap up" / "session closeout". Scoped to the current
-  session and project; needs only plain Markdown and git.
+  broken index links, stale or over-long entries, above-fold entries that have
+  stopped earning ambient status, repo-doc drift, git hygiene — closing with a
+  store checkpoint commit. Runs when you signal "wrap up" / "session
+  closeout". Scoped to the current session and project; needs only plain
+  Markdown and git.
 - **`memory-sweep` — periodic, bundled.** The occasional cross-store pass over
   **every** memory store at once — all per-project dirs plus the cross-project
   store. It is the only tool that proposes **promotions**: per-project facts
   that have proven cross-cutting, moved up to the cross-project layer. It does
   **not** reimplement the per-directory deep clean — it *delegates* that to
   `consolidate-memory` (run on the cross-project store), inheriting that skill's
-  behavior as it evolves. Promotions are proposed, never auto-applied.
+  behavior as it evolves. It also owns the injection-budget response: fold
+  moves and trims by default, graduation to a skill only for runbook-shaped or
+  genuinely clustered knowledge. Promotions are proposed, never auto-applied.
 - **`/consolidate-memory` — single-directory, external.** The
   [`anthropic-skills:consolidate-memory`](https://docs.anthropic.com/en/docs/claude-code/slash-commands)
   skill is the deep per-*directory* consolidation engine: merge duplicates,
@@ -288,7 +300,8 @@ cross-store **promotion**. `closeout` defers deep, cross-store work to
   machine-local; this repo only carries the scaffold.
 - **Sync memories across machines.** Each install accrues its own entries.
   For shared content, use another mechanism (your dotfiles, a shared note)
-  — not this repo.
+  — not this repo. (The skills' optional git checkpointing is per-machine
+  history for recovery, not a sync channel — no remote, ever.)
 - **Define a "right" memory taxonomy.** The four types are a starting
   point. The template hints at sub-organisation (`tools/{name}.md`,
   `domain/{topic}/`, `general.md`) but grow whatever fits your work.
