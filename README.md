@@ -145,7 +145,7 @@ Claude Code harness defines and ships into every session: `type` nested under
 `feedback`/`project` bodies follow with `Why:` / `How to apply:` lines, and
 relative dates are written absolute. This scaffold deliberately does **not**
 copy those rules into the always-loaded surfaces (`MEMORY.md` preamble, the
-`CLAUDE.md` snippet) — duplicating them buys nothing at write-time (the harness
+cross-project rule file) — duplicating them buys nothing at write-time (the harness
 instructions are already in context) and a stale copy that drifts against the
 harness is worse than none. It differs from the per-project format in exactly
 one way, which a reader can't infer and so is worth stating:
@@ -229,21 +229,26 @@ cd claude-global-memory
 ```
 
 The script is idempotent — it creates `~/.claude/memory/`, seeds an empty
-`MEMORY.md` from the template, ensures `~/.claude/CLAUDE.md` exists,
-appends the cross-project memory section if it isn't already there, and
-installs the memory-loader hook (the injection mechanism; `--no-loader`
+`MEMORY.md` from the template, installs the cross-project memory rule at
+`~/.claude/rules/cross-project-memory.md` (loaded into every session by
+Claude Code's rules mechanism — CLI ≥ 2.0.64), and installs the
+memory-loader hook (the injection mechanism; `--no-loader`
 to skip, `--uninstall-loader` to remove — see
 [BOOTSTRAP.md](BOOTSTRAP.md)). Re-running is a no-op once the system is
-in place; existing customisations in `CLAUDE.md` and everything else in
-`settings.json` are preserved.
+in place; your `~/.claude/CLAUDE.md` and everything else in
+`settings.json` are preserved. (One-time exception: older bootstraps
+managed the rule's content as a section *inside* `CLAUDE.md`; the script
+removes that leftover section — BOOTSTRAP.md has the details.)
 
 ### Keeping in sync when this repo updates
 
 Re-running the bootstrap is a safe drift check: it diffs the managed
-regions in `~/.claude/memory/MEMORY.md` and `~/.claude/CLAUDE.md`
-against the canonical content in this repo, and `--force` / `-Force`
-resyncs them. Flag table, region boundaries, and the manual recipe
-live in [BOOTSTRAP.md](BOOTSTRAP.md).
+surfaces — the `~/.claude/memory/MEMORY.md` preamble, the cross-project
+rule file, the loader, installed skills — against the canonical content
+in this repo, and `--force` / `-Force` resyncs them (unmodified-but-stale
+copies of the default-on whole-file surfaces update on a bare run). Flag
+table, surface boundaries, and the manual recipe live in
+[BOOTSTRAP.md](BOOTSTRAP.md).
 
 ## Maintenance
 

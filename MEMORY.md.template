@@ -88,8 +88,9 @@ truncation). Whatever is withheld is announced by a pointer in the
 full injection everywhere. The marker is yours: bootstrap never
 writes, moves, or removes it.
 
-On a machine without the hook, the global CLAUDE.md carries one
-fallback line: read this file before proceeding. When a rule is
+On a machine without the hook, the cross-project rule
+(`~/.claude/rules/cross-project-memory.md`) carries one fallback
+line: read this file before proceeding. When a rule is
 destructive *and* mechanically matchable, a `PreToolUse` guardrail hook
 is the heavier action-point mechanism — for *when* that's justified over
 an index line and how to add one, see `HOOKS.md`.

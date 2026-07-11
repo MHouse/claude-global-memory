@@ -25,9 +25,12 @@ The script does steps 1–3 below, seeds the hooks registry, and installs
 the [memory-loader hook](#the-memory-loader-hook) (default on;
 `--no-loader` skips it), then prints a summary of what changed.
 It's **idempotent**: re-running is a no-op once the system is in place.
-Nothing on disk is duplicated, nothing already there is overwritten —
-including a hand-customised `~/.claude/CLAUDE.md` whose existing
-sections stay exactly where they are.
+Nothing on disk is duplicated, nothing already there is overwritten.
+Bootstrap does not write to `~/.claude/CLAUDE.md` — with one one-time
+exception: earlier versions managed the rule's content as a
+`## Cross-project memory` section *inside* that file, and bootstrap now
+removes that leftover section (see
+[the migration note](#one-time-migration-the-old-claudemd-section)).
 
 After running, optionally seed `user_identity.md` and verify — both are
 below and apply to either path. Done.
@@ -37,7 +40,7 @@ below and apply to either path. Done.
 | Flag (bash) | Flag (PowerShell) | Effect |
 |---|---|---|
 | (none) | (none) | Create anything missing — including the memory-loader hook; on regions already present, detect drift and report it without resyncing. Default. |
-| `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. |
+| `--force` | `-Force` | Rewrite drifted managed regions with the canonical content from this repo. Customisations *inside* the managed regions are lost. Also removes an *edited* superseded `CLAUDE.md` section during the one-time migration, and reinstalls a rule file you deleted. |
 | `--dry-run` | `-WhatIf` | Report intended actions, write nothing. Combines with `--force`. |
 | `--no-loader` | `-NoLoader` | Skip memory-loader management for this run only (no install, no drift check). |
 | `--uninstall-loader` | `-UninstallLoader` | Remove the memory-loader: its `settings.json` registrations, the script + stamp, and its registry row. **Sticky** — an opt-out sentinel keeps later bare re-runs from reinstalling it. |
@@ -55,7 +58,7 @@ from the new canonical and offer to resync.
 | File | Managed region | Never touched |
 |---|---|---|
 | `~/.claude/memory/MEMORY.md` | Everything above `## Entries` | `## Entries` and everything below |
-| `~/.claude/CLAUDE.md` | The `## Cross-project memory` section (its H2 through the next H2 or EOF) | Everything outside that section |
+| `~/.claude/rules/cross-project-memory.md` | The **whole file** (default-on; `.delivered` stamp) | Nothing inside it — but bootstrap won't write *through* a symlink/junction, won't overwrite an edited copy without `--force`, and an **unmodified**-but-stale copy auto-updates on a bare run. Deleting the file while its stamp remains is the opt-out gesture: bare re-runs respect the deletion; `--force` (or deleting the stamp too) reinstalls |
 | `~/.claude/hooks/REGISTRY.md` | Everything above `## Registered hooks`, **plus** the single row whose first cell is `memory-loader` | All other rows below `## Registered hooks` |
 | `~/.claude/hooks/memory-loader.sh` | The **whole file** (default-on; `.delivered` stamp) | Nothing inside it — but bootstrap won't write *through* a symlink/junction, won't overwrite an edited copy without `--force`, and an **unmodified**-but-stale copy auto-updates on a bare run (the stamp proves no user edit is at risk). Its optional `memory-loader.conf` sibling is pure user territory: bootstrap never writes or removes it |
 | `~/.claude/settings.json` | The two `memory-loader` registration blocks under `hooks.SessionStart` / `hooks.SubagentStart` (identified by the command containing `/hooks/memory-loader.sh`) | **Everything else in the file** — other keys, other events, other entries in the same arrays. Merged with a real JSON parser, atomic replace; a file that doesn't parse is never touched (WARN + manual recipe instead) |
@@ -69,10 +72,30 @@ any *other* hook is a documented, opt-in recipe in [`HOOKS.md`](HOOKS.md).
 Each managed region carries an HTML comment marker so the ownership
 boundary is visible in the file itself. Edit *outside* the managed
 regions freely; treat *inside* them as upstream-owned. (Whole-file surfaces —
-the loader script and each bundled skill — are the exception: no in-file
-marker; a `.delivered` sidecar hash plays that role, letting bootstrap tell an
+the loader script, the cross-project rule, and each bundled skill — work by
+`.delivered` sidecar hash instead: it lets bootstrap tell an
 unmodified-but-stale copy from one you edited. And `settings.json` carries no
 marker either — ownership there is by JSON shape, not by region.)
+
+#### One-time migration: the old CLAUDE.md section
+
+Earlier versions of this bootstrap managed the rule's content as a
+`## Cross-project memory` section inside `~/.claude/CLAUDE.md`. It now ships
+as the rule file above — loaded into every session by Claude Code's
+`~/.claude/rules/` mechanism (Claude Code ≥ 2.0.64) — so a leftover section
+would be loaded twice. On every run, bootstrap looks for that section and:
+
+- removes it silently when it carries the bootstrap ownership marker and
+  matches the last shipped version
+  ([`snippets/cross-project-memory-claude-md.md`](snippets/cross-project-memory-claude-md.md),
+  kept **byte-frozen** for exactly this comparison — the live content is
+  [`rules/cross-project-memory.md`](rules/cross-project-memory.md));
+- reports a diff and waits for `--force` when the marker is there but the
+  content differs (an older bootstrap's version, or your edits);
+- never touches a section that lacks the marker — that one is yours.
+
+Once the section is gone this is a permanent no-op, and nothing writes to
+`~/.claude/CLAUDE.md` again.
 
 ### The memory-loader hook
 
@@ -108,7 +131,7 @@ Behavior details, all covered by the test harness:
 - The payload ends with an `INDEX-END (N lines, N bytes)` sentinel. The
   truncation threshold is undocumented harness behavior and can move with any
   CLI update, so the system detects truncation rather than only predicting
-  it: the CLAUDE.md snippet's fallback treats an index block with no final
+  it: the cross-project rule's fallback treats an index block with no final
   `INDEX-END` line as truncated, reads the file instead, and tells the user.
   When that alarm fires, re-measure the threshold with
   `bash test/probe-truncation.sh` (manual and token-spending — it starts a
@@ -177,7 +200,7 @@ On Windows use the forward-slash form:
 `memory-loader` row to `~/.claude/hooks/REGISTRY.md` (bootstrap prints and
 manages the canonical row text).
 
-Without the hook, the layer degrades gracefully: the `CLAUDE.md` snippet
+Without the hook, the layer degrades gracefully: the cross-project rule
 carries one fallback line telling Claude to read the index when no injected
 copy is present in context — instruction-based loading, exactly what the
 loader exists to replace, but better than nothing on a machine you can't
@@ -196,7 +219,8 @@ pwsh -NoProfile -File test/verify.ps1    # Windows
 
 Each spins up a throwaway home, runs `bootstrap` in every mode, asserts the
 managed-surface contract (idempotency, drift detection, `--force` resync, entry
-preservation) **and** the full per-skill matrix (run for each bundled skill:
+preservation), the cross-project rule surface + `CLAUDE.md` migration,
+**and** the full per-skill matrix (run for each bundled skill:
 `closeout` and `memory-sweep`), and exits non-zero on any
 failure. CI runs both on every PR; run them locally before pushing too, since
 it's faster — `bootstrap.sh` and `bootstrap.ps1` must behave identically, and the
@@ -273,24 +297,37 @@ cp MEMORY.md.template ~/.claude/memory/MEMORY.md
 Copy-Item MEMORY.md.template "$env:USERPROFILE\.claude\memory\MEMORY.md"
 ```
 
-### 3. Add the cross-project memory section to the global CLAUDE.md
+### 3. Install the cross-project memory rule
 
-Open (or create) the **global** `~/.claude/CLAUDE.md`. Append the
-contents of [`snippets/cross-project-memory-claude-md.md`](snippets/cross-project-memory-claude-md.md)
-verbatim — the file is the section itself, no commentary to strip.
-It describes the injected index (how to dereference entries, where
-saves go) and carries the fallback line for sessions where no injected
-index is present.
+Copy [`rules/cross-project-memory.md`](rules/cross-project-memory.md) to
+`~/.claude/rules/cross-project-memory.md` — Claude Code loads every `.md`
+file under `~/.claude/rules/` into all sessions on this machine (rules
+directories shipped in CLI **2.0.64**; on an older CLI, add the line
+`@~/.claude/rules/cross-project-memory.md` to your `~/.claude/CLAUDE.md`
+instead — the `@`-import inlines the same file). The rule describes the
+injected index (how to dereference entries, where saves go) and carries the
+fallback line for sessions where no injected index is present.
 
-If a "Cross-project memory" section already exists in your `CLAUDE.md`,
-update its paths to match this machine instead of duplicating. (The
-script does this check for you.)
+```bash
+mkdir -p ~/.claude/rules
+cp rules/cross-project-memory.md ~/.claude/rules/
+```
 
-> **Windows path note.** The harness reads `~/.claude/CLAUDE.md`
-> correctly with the tilde, but if you need to reference these paths
-> in a context that doesn't expand `~` (for example, a hook `command`
-> string in `settings.json`), expand it manually:
-> `C:\Users\<you>\.claude\memory\MEMORY.md`.
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\rules" | Out-Null
+Copy-Item rules\cross-project-memory.md "$env:USERPROFILE\.claude\rules\"
+```
+
+If your `~/.claude/CLAUDE.md` still has the `## Cross-project memory`
+section an older bootstrap added, delete that section — the rule file
+replaces it, and keeping both loads the content twice. (The script does
+this migration for you.)
+
+> **Windows path note.** The harness reads `~/.claude/rules/` and
+> `~/.claude/CLAUDE.md` correctly with the tilde, but if you need to
+> reference these paths in a context that doesn't expand `~` (for
+> example, a hook `command` string in `settings.json`), expand it
+> manually: `C:\Users\<you>\.claude\memory\MEMORY.md`.
 
 ### 4. Install the memory-loader hook
 
@@ -328,8 +365,9 @@ naturally.
 
 - `~/.claude/memory/MEMORY.md` exists with the taxonomy header and an
   empty `## Entries` section.
-- `~/.claude/CLAUDE.md` contains the cross-project memory section
-  pointing at the file above.
+- `~/.claude/rules/cross-project-memory.md` exists (with its `.delivered`
+  stamp beside it), and `~/.claude/CLAUDE.md` no longer contains a
+  bootstrap-owned `## Cross-project memory` section.
 - `~/.claude/hooks/memory-loader.sh` exists and `~/.claude/settings.json`
   contains its two registrations (one under `SessionStart`, one under
   `SubagentStart`), unless you opted out.
@@ -345,7 +383,7 @@ save them — and the system fills itself.
 ## Maintenance (later, not now)
 
 If a session ever reports that the injected index lost its `INDEX-END`
-sentinel (the CLAUDE.md snippet tells Claude to say so), the harness's
+sentinel (the cross-project rule tells Claude to say so), the harness's
 truncation threshold has likely moved with a CLI update — re-measure it
 with `bash test/probe-truncation.sh` and re-calibrate the loader's
 `max_entry_bytes` and the docs it's lockstepped with.
