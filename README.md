@@ -58,7 +58,11 @@ budget*: the harness truncates injected content past ~10k characters to a
 context — keep the `## Entries` payload under ~9KB and put imperative
 lines first. The loader warns at both bounds, and
 [`memory-sweep`](#maintenance) surfaces trims and promotion candidates
-when it's time to prune. A few high-value lines may run longer to carry an inline
+when it's time to prune. Past what pruning fixes, an optional
+`<!-- fold -->` line splits the index into an ambient tier (injected
+everywhere) and an on-demand tail — subagents get only the ambient
+tier, and oversized main sessions degrade to it gracefully instead of
+being truncated (see BOOTSTRAP.md, "The fold"). A few high-value lines may run longer to carry an inline
 rule — see [File format](#file-format) — but that spends the same budget,
 so reserve it for the critical few.
 
