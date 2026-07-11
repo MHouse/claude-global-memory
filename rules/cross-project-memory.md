@@ -22,9 +22,13 @@ A "Cross-project memory index" block in context is that file's
 into main sessions (startup/resume/clear/compact) and non-lean
 subagents alike, the same load guarantee the per-project layer gets.
 Index lines are pointers: read the linked entry file under
-`~/.claude/memory/` before acting on one. Fallback: if no such block is
-present in context, read `~/.claude/memory/MEMORY.md` before
-proceeding. If the block is present but lacks its final `INDEX-END`
+`~/.claude/memory/` before acting on one. Fallback: in a **main
+session** with no such block in context, read
+`~/.claude/memory/MEMORY.md` before proceeding. In a **subagent** with
+no block, the index was likely withheld deliberately (a lean agent
+type on the loader's skip list) — read the file only if the task
+actually needs cross-project context, never as a reflex.
+If the block is present but lacks its final `INDEX-END`
 line, the injection was truncated: read the file as above, and also
 tell the user — the harness truncation threshold may have moved with a
 CLI update (re-measure with `test/probe-truncation.sh` in the
