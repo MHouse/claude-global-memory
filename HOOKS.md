@@ -28,9 +28,12 @@ got its chance. Sorting content by load *guarantee* rather than content type
 
 So bootstrap installs `~/.claude/hooks/memory-loader.sh` **by default** and
 registers it under both **SessionStart** (main sessions: startup / resume /
-clear / compact) and **SubagentStart** (subagents inherit CLAUDE.md but *not*
+clear / compact) and **SubagentStart** (subagents inherit CLAUDE.md and
+`~/.claude/rules/` but *not*
 SessionStart output; the script skips the lean, read-only Explore and Plan
-agent types — a default you override in `~/.claude/hooks/memory-loader.conf`,
+agent types — the same two the harness exempts from CLAUDE.md and rules, so
+the skip surfaces align — a default you override in
+`~/.claude/hooks/memory-loader.conf`,
 never by editing the managed script). It injects the `## Entries` section of
 `~/.claude/memory/MEMORY.md` — and when a `<!-- fold -->` marker splits the
 index, subagents (and main sessions past the byte budget) get the ambient
