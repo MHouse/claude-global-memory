@@ -62,7 +62,9 @@ Synthesize the genuine, durable lessons from the session — things that would s
 
 - ❌ **Skip:** generic engineering wisdom ("test before shipping", "review catches bias") — principles, not facts about this user or environment.
 - ❌ **Skip:** code-level details already in commits, CHANGELOG, or the repo's CLAUDE.md.
-- ❌ **Skip:** anything already in the user's global CLAUDE.md.
+- ❌ **Skip:** anything already in the user's global CLAUDE.md or under
+  `~/.claude/rules/` — re-saving a live promoted rule as a memory violates
+  the move-not-copy contract (RULES.md in the claude-global-memory repo).
 - ✅ **Save:** operational quirks of the user's environment (OS behavior, tool failure modes, version-drift gotchas).
 - ✅ **Save:** explicit user preferences stated during the session.
 - ✅ **Save:** project-specific operator details that don't fit the repo's own docs.

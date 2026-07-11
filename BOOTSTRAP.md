@@ -77,6 +77,12 @@ the loader script, the cross-project rule, and each bundled skill — work by
 unmodified-but-stale copy from one you edited. And `settings.json` carries no
 marker either — ownership there is by JSON shape, not by region.)
 
+One timing note: instruction surfaces (`CLAUDE.md`, `~/.claude/rules/`) are
+snapshotted at session start, and subagents inherit their parent session's
+snapshot (probe-verified 2026-07-11). A synced rule or a migrated CLAUDE.md
+therefore lands in **new** sessions; anything already in flight — and any
+subagent it spawns — keeps the pre-update view until restarted.
+
 #### One-time migration: the old CLAUDE.md section
 
 Earlier versions of this bootstrap managed the rule's content as a
@@ -107,9 +113,13 @@ mechanically, registered under two events:
 - **`SessionStart`** — main sessions: startup, resume, `/clear`, and
   post-compaction, so the index survives every context rebuild.
 - **`SubagentStart`** — spawned subagents, which inherit the global
-  `CLAUDE.md` but *not* SessionStart output. The script skips the lean agent
-  types (`Explore`, `Plan`): they deliberately load no CLAUDE.md to stay
-  token-lean, are read-only, and multiply injection cost under fan-out. The
+  `CLAUDE.md` and `~/.claude/rules/` but *not* SessionStart output. The
+  script skips the lean agent
+  types (`Explore`, `Plan`): they deliberately load no CLAUDE.md *or rules*
+  to stay token-lean, are read-only, and multiply injection cost under
+  fan-out — the harness's skip surface and the loader's align, so a lean
+  agent never holds the rule's fallback without the block (probe-verified
+  2026-07-11). The
   default skip list is a variable at the top of the script — but override it
   in `memory-loader.conf` (below), never by editing the script: an edit marks
   the whole-file surface user-modified and blocks auto-update.
@@ -160,7 +170,10 @@ Behavior details, all covered by the test harness:
   parsed, not sourced: a broken file is ignored (defaults apply, injection
   never dies) and Windows CRLF is tolerated. It is user territory — bootstrap
   never writes, stamps, or removes it, uninstall included — so configuring
-  the loader keeps the script pristine and auto-update flowing.
+  the loader keeps the script pristine and auto-update flowing. A custom
+  skip-listed type still loads `~/.claude/rules/` (the harness exempts only
+  Explore and Plan), but the rule's fallback is scoped by session kind, so a
+  subagent you made lean never reflex-reads the index file it was spared.
 - The registration command is `bash "<absolute path to the script>"` with a
   10-second timeout. On Windows that's Git Bash — already a Claude Code
   prerequisite; note that PowerShell's bare `bash` resolves to the WSL stub,
@@ -201,8 +214,11 @@ On Windows use the forward-slash form:
 manages the canonical row text).
 
 Without the hook, the layer degrades gracefully: the cross-project rule
-carries one fallback line telling Claude to read the index when no injected
-copy is present in context — instruction-based loading, exactly what the
+carries a fallback, scoped by session kind — a main session with no injected
+index block reads the index file before proceeding; a subagent missing the
+block treats it as deliberate withholding (a skip-listed lean type) and reads
+only on actual need, so a conf-extended skip list is never defeated by a
+reflex read. Instruction-based loading, exactly what the
 loader exists to replace, but better than nothing on a machine you can't
 install into.
 
@@ -306,7 +322,7 @@ directories shipped in CLI **2.0.64**; on an older CLI, add the line
 `@~/.claude/rules/cross-project-memory.md` to your `~/.claude/CLAUDE.md`
 instead — the `@`-import inlines the same file). The rule describes the
 injected index (how to dereference entries, where saves go) and carries the
-fallback line for sessions where no injected index is present.
+scoped fallback for sessions where no injected index is present.
 
 ```bash
 mkdir -p ~/.claude/rules
@@ -332,7 +348,7 @@ this migration for you.)
 ### 4. Install the memory-loader hook
 
 The load mechanism itself — without it the layer falls back to the
-snippet's instruction-based fallback line. Follow the **manual
+rule's instruction-based fallback. Follow the **manual
 registration** block in [The memory-loader hook](#the-memory-loader-hook)
 above: copy the script, merge the two registrations into
 `~/.claude/settings.json`, add the registry row.
@@ -373,7 +389,9 @@ naturally.
   `SubagentStart`), unless you opted out.
 - Memory-load verification exercises itself naturally once entries
   accrue — an empty index injects nothing by design, so there's nothing
-  to see yet. After the first entry lands, a fresh session should show a
+  to see yet. (Until the first entry lands, a main session may follow the
+  rule's fallback and read the near-empty index file once — harmless, and
+  it stops the moment the loader has something to inject.) After the first entry lands, a fresh session should show a
   "Cross-project memory index" block in context (and a non-lean subagent
   should see it too); that's the smoke test.
 

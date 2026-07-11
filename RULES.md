@@ -3,7 +3,11 @@
 **Claude Code loads every `.md` file under `~/.claude/rules/` — recursively —
 into every session and every non-lean subagent, full text, no dereference
 step.** (Harness-native since CLI 2.0.64; the same load path as the global
-`CLAUDE.md`.) That makes the rules directory the strongest salience tier on
+`CLAUDE.md`. The built-in lean agents, Explore and Plan, skip rules exactly
+as they skip CLAUDE.md and the memory-loader — no surface reaches them. And
+like CLAUDE.md, rules are snapshotted at session start and inherited by
+subagents: an edit lands in new sessions, not in-flight ones.) That makes
+the rules directory the strongest salience tier on
 the machine, and also the least supervised: no fold, no loader warnings, no
 budget instrumentation. This file governs how a memory gets promoted into
 that tier, and how it gets demoted back out.
