@@ -31,8 +31,19 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
 - **Respect the managed-region contract** (documented in BOOTSTRAP.md):
   - `~/.claude/memory/MEMORY.md`: bootstrap owns everything **above**
     `## Entries`; never touches `## Entries` and below.
-  - `~/.claude/CLAUDE.md`: bootstrap owns only the `## Cross-project
-    memory` H2 section; never touches anything outside it.
+  - `~/.claude/rules/cross-project-memory.md`: **whole-file** surface with a
+    `.delivered` stamp, default ON with loader semantics (unmodified-but-stale
+    auto-updates on a bare run; edited needs `--force`). The opt-out gesture
+    is deletion: target gone while the stamp remains means "removed by the
+    user" — bare re-runs skip it; `--force` (or deleting the stamp too)
+    reinstalls. Canonical source: `rules/cross-project-memory.md`.
+  - `~/.claude/CLAUDE.md`: bootstrap **no longer writes here** — except the
+    one-time migration that removes the `## Cross-project memory` section
+    older versions managed in it. Marker-gated: pristine (matches the
+    byte-frozen `snippets/cross-project-memory-claude-md.md`) → silent
+    removal; edited-but-marked → diff + `--force`; no ownership marker →
+    never touched. Never edit that snippet — it exists only as the
+    migration comparator.
   - `~/.claude/hooks/REGISTRY.md`: bootstrap owns everything **above**
     `## Registered hooks`; never touches the rows below — except the single
     row whose first cell is `memory-loader`, which bootstrap itself adds on
@@ -55,10 +66,9 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
     `-UninstallLoader` is sticky (drops a `.memory-loader.optout` sentinel
     honored by bare re-runs; `--install-loader` / `-InstallLoader` clears it).
   - Each managed region carries an HTML-comment marker as the ownership
-    boundary. The canonical section content is
-    `snippets/cross-project-memory-claude-md.md`, appended verbatim — if
-    you change the snippet, the drift-detection paths in both scripts
-    must still match it.
+    boundary; whole-file surfaces use a `.delivered` sidecar hash instead.
+    Changing `rules/cross-project-memory.md` flows to installs through the
+    stamp machinery on its own — no drift-detection paths to keep in sync.
   - Bundled skills (`skills/<name>/SKILL.md` → `~/.claude/skills/<name>/`):
     **whole-file** managed surfaces (not regions-in-a-file), installed only
     with `--install-skills` / `-InstallSkills` (default off; names select a
@@ -77,9 +87,9 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   `settings.json`: guardrail hooks remain a documented, user-added exception
   governed by the admission policy in `HOOKS.md` and logged in
   `~/.claude/hooks/REGISTRY.md`. Everything else bootstrap writes is
-  Markdown: the memory store, the hooks registry, and — only with the
-  explicit opt-in `--install-skills` flag — copies of the bundled skill
-  files.
+  Markdown: the memory store, the cross-project rule, the hooks registry,
+  and — only with the explicit opt-in `--install-skills` flag — copies of
+  the bundled skill files.
 - **Keep docs and scripts in sync.** README.md, BOOTSTRAP.md, HOOKS.md, the
   templates, and the bootstrap scripts describe one system. A behavior
   change in the scripts usually needs a doc change too.
@@ -112,8 +122,8 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
   (CI also runs both on every PR and gates merges via the required
   `ci-success` check; they cover the managed surfaces, the memory-loader
-  contract, + the per-skill matrix and are kept in lockstep, same as the
-  two bootstrap scripts).
+  contract, the rule surface + CLAUDE.md migration, + the per-skill matrix
+  and are kept in lockstep, same as the two bootstrap scripts).
 
 ## Deploy Configuration
 

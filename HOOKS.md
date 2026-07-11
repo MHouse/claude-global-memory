@@ -43,8 +43,9 @@ What makes it a distinct category from every hook below:
   source of truth, so the admission policy's duplication concerns don't
   arise.
 - **It's infrastructure, not enforcement.** Removing it reverts the layer to
-  instruction-based loading (the CLAUDE.md fallback line) — it doesn't make
-  anything safer or less safe at an action point.
+  instruction-based loading (the fallback line in the cross-project rule,
+  `~/.claude/rules/cross-project-memory.md`) — it doesn't make anything safer
+  or less safe at an action point.
 - **It is the one `settings.json` touch.** Bootstrap merges the two
   registration blocks with a real JSON parser, preserves every other key,
   event, and entry, refuses to touch an unparseable file, and removes exactly

@@ -5,8 +5,10 @@
 .DESCRIPTION
   Runs the BOOTSTRAP.md recipe against a throwaway USERPROFILE and asserts the
   managed-surface idempotency + drift-detection + -Force resync contract, the
-  memory-loader contract (default-on install, surgical settings.json merge,
-  agent-type filter, sticky uninstall), and the full opt-in per-skill matrix
+  cross-project rule surface (default-on whole-file + deletion opt-out) and
+  the one-time CLAUDE.md section migration, the memory-loader contract
+  (default-on install, surgical settings.json merge, agent-type filter,
+  sticky uninstall), and the full opt-in per-skill matrix
   (closeout + memory-sweep). The repo's manual test convention (no CI, no
   app) made runnable. Run by hand before landing a bootstrap change:
 
@@ -56,7 +58,9 @@ Fresh-Home
 $out = Run
 FileIs "fresh: memory dir created"   (Join-Path $script:TH '.claude\memory')
 FileIs "fresh: MEMORY.md created"    (Join-Path $script:TH '.claude\memory\MEMORY.md')
-FileIs "fresh: CLAUDE.md created"    (Join-Path $script:TH '.claude\CLAUDE.md')
+NoFile "fresh: CLAUDE.md not created" (Join-Path $script:TH '.claude\CLAUDE.md')
+FileIs "fresh: rule installed"       (Join-Path $script:TH '.claude\rules\cross-project-memory.md')
+FileIs "fresh: rule stamp present"   (Join-Path $script:TH '.claude\rules\.cross-project-memory.delivered')
 FileIs "fresh: REGISTRY.md created"  (Join-Path $script:TH '.claude\hooks\REGISTRY.md')
 Has    "fresh: closeout skipped (opt-in)" $out "skip      closeout skill (not installed"
 Has    "fresh: memory-sweep skipped (opt-in)" $out "skip      memory-sweep skill (not installed"
@@ -74,6 +78,88 @@ Has    "drift: drift is on MEMORY.md"             $out "MEMORY.md"
 $out = Run -Force
 Has    "force: synced reported" $out "synced"
 if ((Get-Content $mem -Raw).Contains('[my entry](x.md)')) { Ok "force: user entry below ## Entries preserved" } else { No "force: user entry clobbered" }
+
+# ---- cross-project rule (default-on whole-file surface) -----------------------
+# Mirrors the rule block in verify.sh -- keep the two in sync. Paths come from
+# functions so they always read the CURRENT $script:TH (Fresh-Home reassigns it).
+function RuleTarget { Join-Path $script:TH '.claude\rules\cross-project-memory.md' }
+function RuleStamp  { Join-Path $script:TH '.claude\rules\.cross-project-memory.delivered' }
+
+Write-Host "== rule: stale / edited / opt-out / reinstall =="
+Fresh-Home
+Run | Out-Null
+$out = Run
+Has    "rule: bare run in sync" $out "cross-project-memory.md (in sync)"
+Set-Content -Path (RuleTarget) -Value "old rule version`n" -NoNewline
+Set-Content -Path (RuleStamp) -Value (NHash (RuleTarget)) -NoNewline
+$out = Run
+Has    "rule: pristine-stale auto-updated on bare run" $out "updated to current version"
+if ((NHash (RuleTarget)) -eq (NHash (Join-Path $repoRoot 'rules\cross-project-memory.md'))) { Ok "rule: updated copy matches source" } else { No "rule: updated copy != source" }
+Add-Content -Path (RuleTarget) -Value "HAND EDIT"
+$out = Run
+Has    "rule: edited copy -> DRIFT" $out "differs and looks edited"
+$out = Run -Force
+Has    "rule: -Force overwrote edited copy" $out "overwrote modified copy"
+Remove-Item -LiteralPath (RuleTarget) -Force
+$out = Run
+Has    "rule: deleted-with-stamp respected as opt-out" $out "removed by you"
+NoFile "rule: not reinstalled while opted out" (RuleTarget)
+$out = Run -Force
+Has    "rule: -Force reinstalls over the opt-out" $out "(reinstalled)"
+FileIs "rule: reinstalled" (RuleTarget)
+Remove-Item -LiteralPath (RuleTarget) -Force
+Remove-Item -LiteralPath (RuleStamp) -Force
+$out = Run
+Has    "rule: file+stamp deleted -> fresh install on bare run" $out "cross-project memory rule installed"
+Remove-Item -LiteralPath (RuleTarget) -Force
+$linkMade = $false
+try {
+    New-Item -ItemType SymbolicLink -Path (RuleTarget) -Target (Join-Path $script:TH '.claude\memory\MEMORY.md') -ErrorAction Stop | Out-Null
+    $linkMade = $true
+} catch {}
+if ($linkMade) {
+    $out = Run
+    Has "rule: refuses to write through a symlink" $out "is a symlink/junction; not managing it"
+    (Get-Item -LiteralPath (RuleTarget) -Force).Delete()
+} else {
+    Write-Host "  SKIP  rule: symlink refusal (needs symlink privilege; covered by verify.sh on CI)"
+}
+
+Write-Host "== migration: pristine superseded CLAUDE.md section removed =="
+Fresh-Home
+New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude') -Force | Out-Null
+$cm = Join-Path $script:TH '.claude\CLAUDE.md'
+$legacyRaw = Get-Content (Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md') -Raw
+Set-Content -Path $cm -Value ("# My CLAUDE.md`n`nuser prefs above`n`n" + $legacyRaw + "`n## My other section`n`nuser content after`n") -NoNewline
+$out = Run
+Has    "migration: pristine section removed" $out "removed   cross-project memory section"
+$cmRaw = Get-Content $cm -Raw
+if ($cmRaw -notmatch '(?m)^## Cross-project memory') { Ok "migration: section gone" } else { No "migration: section still present" }
+if ($cmRaw.Contains('user prefs above') -and $cmRaw.Contains('user content after') -and $cmRaw.Contains('## My other section')) { Ok "migration: user content around the section preserved" } else { No "migration: user content damaged" }
+$out = Run
+Hasnt  "migration: permanent no-op afterwards" $out "removed   cross-project memory section"
+Hasnt  "migration: no drift afterwards" $out "DRIFT"
+
+Write-Host "== migration: edited section needs -Force; unmarked never touched =="
+Fresh-Home
+New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude') -Force | Out-Null
+$cm = Join-Path $script:TH '.claude\CLAUDE.md'
+Set-Content -Path $cm -Value ($legacyRaw + "MY EDIT INSIDE THE SECTION`n") -NoNewline
+$out = Run
+Has    "migration: edited section -> DRIFT" $out "differs from the last shipped version"
+if ((Get-Content $cm -Raw).Contains('MY EDIT INSIDE THE SECTION')) { Ok "migration: edited section left in place" } else { No "migration: edited section removed without -Force" }
+$out = Run -Force
+Has    "migration: -Force removes the edited section" $out "edited copy deleted"
+$cmRaw = Get-Content $cm -Raw
+if ($null -eq $cmRaw -or $cmRaw -notmatch '(?m)^## Cross-project memory') { Ok "migration: edited section gone after -Force" } else { No "migration: edited section still present after -Force" }
+Fresh-Home
+New-Item -ItemType Directory -Path (Join-Path $script:TH '.claude') -Force | Out-Null
+$cm = Join-Path $script:TH '.claude\CLAUDE.md'
+Set-Content -Path $cm -Value "## Cross-project memory`n`nmy own homegrown notes`n" -NoNewline
+$out = Run
+Has    "migration: unmarked section -> WARN" $out "without the bootstrap ownership marker"
+Run -Force | Out-Null
+if ((Get-Content $cm -Raw).Contains('my own homegrown notes')) { Ok "migration: unmarked section survives even -Force" } else { No "migration: unmarked section was removed" }
 
 # ---- memory-loader (default-on) ----------------------------------------------
 # Mirrors the loader block in verify.sh -- keep the two in sync. Hook-EXECUTION

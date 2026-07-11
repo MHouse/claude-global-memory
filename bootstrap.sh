@@ -7,9 +7,21 @@
 #      If present, compares the *preamble* (everything above '## Entries')
 #      against the template and reports drift. The Entries section is
 #      per-machine and is never touched.
-#   3. Creates ~/.claude/CLAUDE.md with a minimal header if absent.
-#   4. Appends the cross-project memory section if absent. If present,
-#      compares the section body against the snippet and reports drift.
+#   3. Installs the cross-project memory rule to
+#      ~/.claude/rules/cross-project-memory.md -- a whole-file managed
+#      surface with a .delivered stamp, default ON like the loader: an
+#      unmodified-but-stale copy auto-updates on a bare run, an edited one
+#      needs --force. Opt out by deleting the file and leaving the stamp in
+#      place: bare re-runs respect the deletion; --force reinstalls, and so
+#      does a bare run after the stamp is deleted too.
+#   4. One-time migration: the rule's content used to live in
+#      ~/.claude/CLAUDE.md as a managed '## Cross-project memory' section.
+#      A leftover section carrying the bootstrap ownership marker is
+#      removed -- silently when it matches the last shipped version
+#      (snippets/cross-project-memory-claude-md.md, kept byte-frozen for
+#      exactly this comparison), or with a diff + --force when it differs
+#      (an older bootstrap's version, or hand edits). A section without
+#      the marker is never touched.
 #   5. Seeds ~/.claude/hooks/REGISTRY.md (a hooks ledger) from
 #      REGISTRY.md.template if absent; else drift-checks its preamble.
 #   6. Installs the memory-loader hook (default ON): copies
@@ -33,9 +45,10 @@
 # Drift = file's managed region differs from canonical content in this
 # repo. Default: report with a diff, do not modify. Re-run with --force
 # to rewrite drifted regions; customisations inside them are lost,
-# customisations outside them are preserved. (One exception: an installed
-# memory-loader.sh whose stamp proves it was never hand-edited auto-updates
-# on a bare run -- load-bearing infrastructure, no user content at risk.)
+# customisations outside them are preserved. (One exception: the default-on
+# whole-file surfaces -- memory-loader.sh and the cross-project rule --
+# auto-update on a bare run when the .delivered stamp proves the copy was
+# never hand-edited: load-bearing content, no user edits at risk.)
 #
 # Flags:
 #   --force                Rewrite drifted managed regions with canonical content.
@@ -90,7 +103,13 @@ memory_dir="${claude_home}/memory"
 memory_index="${memory_dir}/MEMORY.md"
 claude_md="${claude_home}/CLAUDE.md"
 template="${repo_root}/MEMORY.md.template"
-snippet="${repo_root}/snippets/cross-project-memory-claude-md.md"
+rules_dir="${claude_home}/rules"
+rule_source="${repo_root}/rules/cross-project-memory.md"
+rule_target="${rules_dir}/cross-project-memory.md"
+rule_stamp="${rules_dir}/.cross-project-memory.delivered"
+# Byte-frozen: the last-shipped CLAUDE.md section content, used ONLY by the
+# step-4 migration comparison. Never edit it; the live content is rules/.
+legacy_snippet="${repo_root}/snippets/cross-project-memory-claude-md.md"
 hooks_dir="${claude_home}/hooks"
 registry="${hooks_dir}/REGISTRY.md"
 registry_template="${repo_root}/REGISTRY.md.template"
@@ -105,7 +124,8 @@ skills_dir="${claude_home}/skills"
 bundled_skills=("closeout" "memory-sweep")
 
 [ -f "$template" ] || { echo "Template not found at $template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
-[ -f "$snippet"  ] || { echo "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
+[ -f "$rule_source" ] || { echo "Rule source not found at $rule_source -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
+[ -f "$legacy_snippet" ] || { echo "Legacy snippet not found at $legacy_snippet -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$registry_template" ] || { echo "Registry template not found at $registry_template -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 [ -f "$loader_source" ] || { echo "Loader hook source not found at $loader_source -- run this script from a clone of the claude-global-memory repo." >&2; exit 1; }
 
@@ -163,33 +183,41 @@ show_diff() {
     echo ""
 }
 
-# Replace lines [start_re, next_h2 or EOF) in $file with contents of $replacement.
-replace_claudemd_section() {
+# Remove the '## Cross-project memory' section (H2 through the line before
+# the next H2 or EOF) from $file, healing the seam with a single blank line.
+# Touches nothing outside the section and its immediate separator blanks.
+remove_claudemd_section() {
     local file=$1
-    local replacement=$2  # path to file containing canonical section
     local tmp
     tmp="$(mktemp)"
-    awk -v repl_file="$replacement" '
-        BEGIN {
-            while ((getline line < repl_file) > 0) {
-                repl = repl ? repl "\n" line : line
+    awk '
+        { lines[NR] = $0 }
+        /^## Cross-project memory[[:space:]]*$/ { if (!start) start = NR }
+        END {
+            if (!start) { for (i = 1; i <= NR; i++) print lines[i]; exit }
+            end = NR + 1
+            for (i = start + 1; i <= NR; i++) if (lines[i] ~ /^## /) { end = i; break }
+            bend = start - 1
+            while (bend >= 1 && lines[bend] ~ /^[ \t\r]*$/) bend--
+            printed = 0
+            for (i = 1; i <= bend; i++) { print lines[i]; printed = 1 }
+            if (end <= NR) {
+                if (printed) print ""
+                for (i = end; i <= NR; i++) print lines[i]
             }
-            close(repl_file)
         }
-        /^## Cross-project memory[[:space:]]*$/ {
-            if (!emitted) {
-                print repl
-                print ""
-                emitted = 1
-            }
-            skipping = 1
-            next
-        }
-        skipping && /^## / { skipping = 0 }
-        !skipping { print }
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
 }
+
+# Portable SHA-256: coreutils `sha256sum` (Linux, Git Bash) or `shasum -a 256`
+# (macOS, which ships no sha256sum). Same digest either way. Shared by the
+# cross-project rule (step 3), the memory-loader (step 6), and the bundled
+# skills (step 7).
+_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+# printf '%s' "$(...)" drops the trailing newline so this matches the PowerShell
+# Get-NormalizedHash (which joins lines with no trailing newline) byte-for-byte.
+normalized_hash() { printf '%s' "$(normalize "$1")" | _sha256 | awk '{print $1}'; }
 
 # Replace the preamble (everything up to the marker line $3) in $file with
 # the preamble extracted from $template. Used for MEMORY.md and REGISTRY.md.
@@ -222,7 +250,9 @@ replace_preamble() {
 
 # LOCKSTEP PARITY (bootstrap.sh <-> bootstrap.ps1): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
-#   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
+#   - managed surfaces: MEMORY.md preamble, REGISTRY.md preamble, the
+#     cross-project rule (default-on whole-file surface + deletion opt-out),
+#     and the one-time CLAUDE.md section migration
 #   - memory-loader (default-on): script install + stamp + auto-update of
 #     unmodified-stale copies, the two-event settings.json merge/uninstall,
 #     the ledger row, and the sticky opt-out
@@ -280,48 +310,92 @@ else
     fi
 fi
 
-# 3 + 4. CLAUDE.md
-if [ ! -f "$claude_md" ]; then
-    if [[ "$dry_run" -eq 0 ]]; then
-        {
-            cat <<'EOF'
-# Global CLAUDE.md
+# 3. Cross-project memory rule -- whole-file surface at
+#    ~/.claude/rules/cross-project-memory.md, default ON, stamp semantics
+#    like the memory-loader (step 6): an unmodified-but-stale copy
+#    auto-updates on a bare run, an edited one needs --force. Deliberate
+#    opt-out gesture: the target deleted while the stamp remains means
+#    "removed by the user" -- bare re-runs skip it; --force reinstalls,
+#    and so does a bare run once the stamp is deleted too.
+rule_write() {
+    [[ "$dry_run" -eq 1 ]] && return 0
+    mkdir -p "$rules_dir"
+    # Temp in the SAME dir as the target so the mv is an atomic rename.
+    local tmp
+    tmp="$(mktemp "${rules_dir}/.cross-project-memory.tmp.XXXXXX")"
+    cp "$rule_source" "$tmp" && mv "$tmp" "$rule_target"
+    [ -s "$rule_target" ] || { echo "Rule install wrote an empty file at $rule_target" >&2; exit 1; }
+    normalized_hash "$rule_source" > "$rule_stamp"
+}
 
-Personal preferences and conventions that apply across all projects.
-Project-specific guidance lives in each repo's CLAUDE.md.
-
-EOF
-            cat "$snippet"
-        } > "$claude_md"
+manage_rule() {
+    if [ -L "$rule_target" ]; then
+        note "  WARN      $rule_target is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return 0
     fi
-    note "  created   $claude_md (with minimal header + section)"
-else
-    if ! has_section_marker "$claude_md"; then
-        # Append snippet with a blank-line separator.
-        if [[ "$dry_run" -eq 0 ]]; then
-            # Ensure trailing newline before appending
-            if [ -s "$claude_md" ] && [ "$(tail -c 1 "$claude_md" | wc -c)" -gt 0 ]; then
-                printf '\n' >> "$claude_md"
+
+    if [ ! -e "$rule_target" ]; then
+        if [ -f "$rule_stamp" ]; then
+            # File gone, stamp still there: the user deleted it on purpose.
+            if [[ "$force" -eq 1 ]]; then
+                rule_write
+                note "  created   $rule_target (reinstalled)"
+            else
+                note "  skip      $rule_target (removed by you; --force reinstalls, or delete the stamp $rule_stamp too)"
             fi
-            printf '\n' >> "$claude_md"
-            cat "$snippet" >> "$claude_md"
-            last_char="$(tail -c 1 "$claude_md")"
-            [ -n "$last_char" ] && printf '\n' >> "$claude_md"
-        fi
-        note "  appended  cross-project memory section to $claude_md"
-    else
-        live_section="$(extract_claudemd_section "$claude_md")"
-        canonical_section="$(normalize "$snippet")"
-        if [[ "$live_section" == "$canonical_section" ]]; then
-            note "  exists    $claude_md (section matches canonical snippet)"
-        elif [[ "$force" -eq 1 ]]; then
-            if [[ "$dry_run" -eq 0 ]]; then
-                replace_claudemd_section "$claude_md" "$snippet"
-            fi
-            note "  synced    $claude_md (section replaced)"
         else
-            note "  DRIFT     $claude_md (section differs from snippet; re-run with --force to sync)"
-            show_diff "CLAUDE.md cross-project section" "$live_section" "$canonical_section"
+            rule_write
+            note "  created   $rule_target (cross-project memory rule installed)"
+        fi
+        return 0
+    fi
+
+    local src_hash inst_hash stamp_hash
+    src_hash="$(normalized_hash "$rule_source")"
+    inst_hash="$(normalized_hash "$rule_target")"
+    if [[ "$src_hash" == "$inst_hash" ]]; then
+        note "  exists    $rule_target (in sync)"
+        return 0
+    fi
+    stamp_hash=""
+    [ -f "$rule_stamp" ] && stamp_hash="$(tr -d '[:space:]' < "$rule_stamp")"
+    if [ -n "$stamp_hash" ] && [ "$stamp_hash" == "$inst_hash" ]; then
+        # Unmodified since we wrote it: auto-update (default-on surface, same
+        # reasoning as the memory-loader -- no user content at risk).
+        rule_write
+        note "  synced    $rule_target (updated to current version)"
+    elif [[ "$force" -eq 1 ]]; then
+        rule_write
+        note "  synced    $rule_target (overwrote modified copy)"
+    else
+        note "  DRIFT     $rule_target (differs and looks edited; --force overwrites your changes)"
+        drift_reported=1
+    fi
+}
+
+manage_rule
+
+# 4. One-time migration: remove the superseded '## Cross-project memory'
+#    section from ~/.claude/CLAUDE.md (the rule above replaces it). Only a
+#    section carrying the bootstrap ownership marker is ever touched;
+#    $legacy_snippet is the byte-frozen last-shipped section content used
+#    for the comparison. Permanent no-op once the section is gone.
+claudemd_ownership_marker='<!-- Section managed by the claude-global-memory bootstrap'
+if [ -f "$claude_md" ] && has_section_marker "$claude_md"; then
+    live_section="$(extract_claudemd_section "$claude_md")"
+    if ! printf '%s\n' "$live_section" | grep -qF "$claudemd_ownership_marker"; then
+        note "  WARN      $claude_md (a '## Cross-project memory' section without the bootstrap ownership marker; leaving it -- the canonical content now lives at $rule_target)"
+    else
+        legacy_section="$(normalize "$legacy_snippet")"
+        if [[ "$live_section" == "$legacy_section" ]]; then
+            if [[ "$dry_run" -eq 0 ]]; then remove_claudemd_section "$claude_md"; fi
+            note "  removed   cross-project memory section from $claude_md (moved to $rule_target)"
+        elif [[ "$force" -eq 1 ]]; then
+            if [[ "$dry_run" -eq 0 ]]; then remove_claudemd_section "$claude_md"; fi
+            note "  removed   cross-project memory section from $claude_md (edited copy deleted; canonical content lives at $rule_target)"
+        else
+            note "  DRIFT     $claude_md (superseded cross-project memory section differs from the last shipped version -- an older bootstrap or hand edits; review the diff, then re-run with --force to remove it. Canonical content now lives at $rule_target)"
+            show_diff "superseded CLAUDE.md section" "$live_section" "$legacy_section"
             drift_reported=1
         fi
     fi
@@ -363,14 +437,6 @@ else
         fi
     fi
 fi
-
-# Portable SHA-256: coreutils `sha256sum` (Linux, Git Bash) or `shasum -a 256`
-# (macOS, which ships no sha256sum). Same digest either way. Shared by the
-# memory-loader (step 6) and the bundled skills (step 7).
-_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
-# printf '%s' "$(...)" drops the trailing newline so this matches the PowerShell
-# Get-NormalizedHash (which joins lines with no trailing newline) byte-for-byte.
-normalized_hash() { printf '%s' "$(normalize "$1")" | _sha256 | awk '{print $1}'; }
 
 # 6. Memory-loader hook (default ON; see HOOKS.md "The load-bearing exception").
 #    Three surfaces, managed together:
@@ -837,6 +903,6 @@ regions will be lost; customisations outside them are preserved.
 EOF
 fi
 echo "Next steps:"
-echo "  - Open ~/.claude/CLAUDE.md and confirm the section reads well."
+echo "  - Open ~/.claude/rules/cross-project-memory.md and confirm it reads well."
 echo "  - Optionally seed ~/.claude/memory/user_identity.md (see BOOTSTRAP.md)."
 echo "  - Save memories as you work; the system fills itself."

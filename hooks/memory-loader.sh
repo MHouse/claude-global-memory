@@ -135,7 +135,7 @@ else
     entry_bytes=$(printf '%s' "$inject" | wc -c | tr -d '[:space:]')
 fi
 
-payload="Cross-project memory index -- injected from ~/.claude/memory/MEMORY.md (see the Cross-project memory section of the global CLAUDE.md). One line per entry; read the linked entry file under ~/.claude/memory/ before acting on one.
+payload="Cross-project memory index -- injected from ~/.claude/memory/MEMORY.md (see ~/.claude/rules/cross-project-memory.md). One line per entry; read the linked entry file under ~/.claude/memory/ before acting on one.
 
 $inject"
 

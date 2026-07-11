@@ -10,10 +10,21 @@
        If present, compares the *preamble* (everything above the
        '## Entries' heading) against the template and reports drift. The
        Entries section is per-machine and is never touched.
-    3. Creates ~/.claude/CLAUDE.md with a minimal header if absent.
-    4. Appends the cross-project memory section to ~/.claude/CLAUDE.md if
-       absent. If present, compares the section body against the snippet
-       and reports drift.
+    3. Installs the cross-project memory rule to
+       ~/.claude/rules/cross-project-memory.md -- a whole-file managed
+       surface with a .delivered stamp, default ON like the loader: an
+       unmodified-but-stale copy auto-updates on a bare run, an edited one
+       needs -Force. Opt out by deleting the file and leaving the stamp in
+       place: bare re-runs respect the deletion; -Force reinstalls, and so
+       does a bare run after the stamp is deleted too.
+    4. One-time migration: the rule's content used to live in
+       ~/.claude/CLAUDE.md as a managed '## Cross-project memory' section.
+       A leftover section carrying the bootstrap ownership marker is
+       removed -- silently when it matches the last shipped version
+       (snippets/cross-project-memory-claude-md.md, kept byte-frozen for
+       exactly this comparison), or with a diff + -Force when it differs
+       (an older bootstrap's version, or hand edits). A section without
+       the marker is never touched.
     5. Seeds ~/.claude/hooks/REGISTRY.md (a hooks ledger) from
        REGISTRY.md.template if absent; otherwise drift-checks its preamble
        (above '## Registered hooks').
@@ -39,9 +50,10 @@
   with a diff but not corrected. Re-run with -Force to rewrite drifted
   regions with the canonical content. Hand-customisations inside those
   regions will be lost; customisations outside them are preserved.
-  (One exception: an installed memory-loader.sh whose stamp proves it was
-  never hand-edited auto-updates on a bare run -- load-bearing
-  infrastructure, no user content at risk.)
+  (One exception: the default-on whole-file surfaces -- memory-loader.sh
+  and the cross-project rule -- auto-update on a bare run when the
+  .delivered stamp proves the copy was never hand-edited: load-bearing
+  content, no user edits at risk.)
 
   -WhatIf shows what would change without writing anything.
 
@@ -81,7 +93,13 @@ $memoryDir   = Join-Path $claudeHome 'memory'
 $memoryIndex = Join-Path $memoryDir 'MEMORY.md'
 $claudeMd    = Join-Path $claudeHome 'CLAUDE.md'
 $template    = Join-Path $repoRoot 'MEMORY.md.template'
-$snippet     = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
+$rulesDir    = Join-Path $claudeHome 'rules'
+$ruleSource  = Join-Path $repoRoot (Join-Path 'rules' 'cross-project-memory.md')
+$ruleTarget  = Join-Path $rulesDir 'cross-project-memory.md'
+$ruleStamp   = Join-Path $rulesDir '.cross-project-memory.delivered'
+# Byte-frozen: the last-shipped CLAUDE.md section content, used ONLY by the
+# step-4 migration comparison. Never edit it; the live content is rules\.
+$legacySnippet = Join-Path $repoRoot 'snippets\cross-project-memory-claude-md.md'
 $hooksDir         = Join-Path $claudeHome 'hooks'
 $registry         = Join-Path $hooksDir 'REGISTRY.md'
 $registryTemplate = Join-Path $repoRoot 'REGISTRY.md.template'
@@ -106,8 +124,11 @@ $bundledSkills    = @('closeout', 'memory-sweep')
 if (-not (Test-Path $template)) {
     throw "Template not found at $template -- run this script from a clone of the claude-global-memory repo."
 }
-if (-not (Test-Path $snippet)) {
-    throw "Snippet not found at $snippet -- run this script from a clone of the claude-global-memory repo."
+if (-not (Test-Path $ruleSource)) {
+    throw "Rule source not found at $ruleSource -- run this script from a clone of the claude-global-memory repo."
+}
+if (-not (Test-Path $legacySnippet)) {
+    throw "Legacy snippet not found at $legacySnippet -- run this script from a clone of the claude-global-memory repo."
 }
 if (-not (Test-Path $registryTemplate)) {
     throw "Registry template not found at $registryTemplate -- run this script from a clone of the claude-global-memory repo."
@@ -390,7 +411,9 @@ function Test-LoaderRegistryRowPresent {
 
 # LOCKSTEP PARITY (bootstrap.ps1 <-> bootstrap.sh): these two scripts MUST behave
 # identically. Change one => change the other. Operations that must stay in sync:
-#   - managed surfaces: MEMORY.md preamble, CLAUDE.md section, REGISTRY.md preamble
+#   - managed surfaces: MEMORY.md preamble, REGISTRY.md preamble, the
+#     cross-project rule (default-on whole-file surface + deletion opt-out),
+#     and the one-time CLAUDE.md section migration
 #   - memory-loader (default-on): script install + stamp + auto-update of
 #     unmodified-stale copies, the two-event settings.json merge/uninstall,
 #     the ledger row, and the sticky opt-out
@@ -445,58 +468,114 @@ if (-not (Test-Path $memoryIndex)) {
     }
 }
 
-# 3 + 4. CLAUDE.md
-$snippetLines = Read-NormalizedLines $snippet
-$canonSection = $snippetLines -join "`n"
+# 3. Cross-project memory rule -- whole-file surface at
+#    ~/.claude/rules/cross-project-memory.md; mirrors manage_rule in
+#    bootstrap.sh exactly. Default ON, stamp semantics like the loader
+#    (step 6): an unmodified-but-stale copy auto-updates on a bare run, an
+#    edited one needs -Force. Deliberate opt-out gesture: the target deleted
+#    while the stamp remains means "removed by the user" -- bare re-runs
+#    skip it; -Force reinstalls, and so does a bare run once the stamp is
+#    deleted too. (Advanced function so -WhatIf propagates.)
+function Manage-Rule {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param()
 
-if (-not (Test-Path $claudeMd)) {
-    if ($PSCmdlet.ShouldProcess($claudeMd, 'create with header and section')) {
-        $headerLines = @(
-            '# Global CLAUDE.md',
-            '',
-            'Personal preferences and conventions that apply across all projects.',
-            "Project-specific guidance lives in each repo's CLAUDE.md.",
-            ''
-        )
-        $newLines = $headerLines + $snippetLines
-        Write-File $claudeMd $newLines
+    if (Test-IsReparsePoint $ruleTarget) {
+        $script:summary += "  WARN      $ruleTarget is a symlink/junction; not managing it. Remove it first to let bootstrap manage a copy."
+        return
     }
-    $summary += "  created   $claudeMd (with minimal header + section)"
-} else {
+
+    if (-not (Test-Path -LiteralPath $ruleTarget)) {
+        if (Test-Path -LiteralPath $ruleStamp) {
+            # File gone, stamp still there: the user deleted it on purpose.
+            if ($Force) {
+                if ($PSCmdlet.ShouldProcess($ruleTarget, 'reinstall cross-project memory rule')) {
+                    Install-Skill $ruleSource $rulesDir $ruleTarget $ruleStamp
+                }
+                $script:summary += "  created   $ruleTarget (reinstalled)"
+            } else {
+                $script:summary += "  skip      $ruleTarget (removed by you; -Force reinstalls, or delete the stamp $ruleStamp too)"
+            }
+        } else {
+            if ($PSCmdlet.ShouldProcess($ruleTarget, 'install cross-project memory rule')) {
+                Install-Skill $ruleSource $rulesDir $ruleTarget $ruleStamp
+            }
+            $script:summary += "  created   $ruleTarget (cross-project memory rule installed)"
+        }
+        return
+    }
+
+    $srcHash  = Get-NormalizedHash $ruleSource
+    $instHash = Get-NormalizedHash $ruleTarget
+    if ($srcHash -eq $instHash) {
+        $script:summary += "  exists    $ruleTarget (in sync)"
+        return
+    }
+    $stampHash = ''
+    if (Test-Path -LiteralPath $ruleStamp) { $stampHash = (Get-Content -LiteralPath $ruleStamp -Raw).Trim() }
+    if ($stampHash -ne '' -and $stampHash -eq $instHash) {
+        # Unmodified since we wrote it: auto-update (default-on surface, same
+        # reasoning as the memory-loader -- no user content at risk).
+        if ($PSCmdlet.ShouldProcess($ruleTarget, 'update cross-project memory rule to current version')) {
+            Install-Skill $ruleSource $rulesDir $ruleTarget $ruleStamp
+        }
+        $script:summary += "  synced    $ruleTarget (updated to current version)"
+    } elseif ($Force) {
+        if ($PSCmdlet.ShouldProcess($ruleTarget, 'overwrite modified cross-project memory rule')) {
+            Install-Skill $ruleSource $rulesDir $ruleTarget $ruleStamp
+        }
+        $script:summary += "  synced    $ruleTarget (overwrote modified copy)"
+    } else {
+        $script:summary += "  DRIFT     $ruleTarget (differs and looks edited; -Force overwrites your changes)"
+        $script:driftReported = $true
+    }
+}
+
+Manage-Rule
+
+# 4. One-time migration: remove the superseded '## Cross-project memory'
+#    section from ~/.claude/CLAUDE.md (the rule above replaces it). Only a
+#    section carrying the bootstrap ownership marker is ever touched;
+#    $legacySnippet is the byte-frozen last-shipped section content used
+#    for the comparison. Permanent no-op once the section is gone.
+$claudemdOwnershipMarker = '<!-- Section managed by the claude-global-memory bootstrap'
+if (Test-Path $claudeMd) {
     $liveLines   = Read-NormalizedLines $claudeMd
     $liveSection = Get-ClaudeMdSection $liveLines
 
-    if ($null -eq $liveSection) {
-        if ($PSCmdlet.ShouldProcess($claudeMd, 'append cross-project memory section')) {
-            $newLines = $liveLines + @('') + $snippetLines
-            Write-File $claudeMd $newLines
-        }
-        $summary += "  appended  cross-project memory section to $claudeMd"
-    } elseif ($liveSection.Section -eq $canonSection) {
-        $summary += "  exists    $claudeMd (section matches canonical snippet)"
-    } elseif ($Force) {
-        if ($PSCmdlet.ShouldProcess($claudeMd, 'replace cross-project memory section')) {
-            $beforeLines = if ($liveSection.StartIdx -gt 0) { $liveLines[0..($liveSection.StartIdx - 1)] } else { @() }
-            $afterLines  = if ($liveSection.EndIdx -lt $liveLines.Count) { $liveLines[$liveSection.EndIdx..($liveLines.Count - 1)] } else { @() }
-            # Trim trailing blanks from before-block (we'll add one separator)
-            while ($beforeLines.Count -gt 0 -and $beforeLines[-1] -eq '') {
-                $beforeLines = $beforeLines[0..($beforeLines.Count - 2)]
+    if ($null -ne $liveSection) {
+        $hasOwnershipMarker = [bool](@($liveSection.SectionLines) | Where-Object { $_.Contains($claudemdOwnershipMarker) })
+        if (-not $hasOwnershipMarker) {
+            $summary += "  WARN      $claudeMd (a '## Cross-project memory' section without the bootstrap ownership marker; leaving it -- the canonical content now lives at $ruleTarget)"
+        } else {
+            $legacySection = (Read-NormalizedLines $legacySnippet) -join "`n"
+            $isPristine = ($liveSection.Section -eq $legacySection)
+            if ($isPristine -or $Force) {
+                if ($PSCmdlet.ShouldProcess($claudeMd, 'remove superseded cross-project memory section')) {
+                    $beforeLines = if ($liveSection.StartIdx -gt 0) { $liveLines[0..($liveSection.StartIdx - 1)] } else { @() }
+                    $afterLines  = if ($liveSection.EndIdx -lt $liveLines.Count) { $liveLines[$liveSection.EndIdx..($liveLines.Count - 1)] } else { @() }
+                    # Trim trailing blanks from the before-block; a single
+                    # blank line heals the seam when both blocks are non-empty.
+                    while ($beforeLines.Count -gt 0 -and $beforeLines[-1] -eq '') {
+                        $beforeLines = $beforeLines[0..($beforeLines.Count - 2)]
+                    }
+                    $newLines = @()
+                    if ($beforeLines.Count -gt 0) { $newLines += $beforeLines }
+                    if ($beforeLines.Count -gt 0 -and $afterLines.Count -gt 0) { $newLines += @('') }
+                    if ($afterLines.Count -gt 0) { $newLines += $afterLines }
+                    Write-File $claudeMd $newLines
+                }
+                if ($isPristine) {
+                    $summary += "  removed   cross-project memory section from $claudeMd (moved to $ruleTarget)"
+                } else {
+                    $summary += "  removed   cross-project memory section from $claudeMd (edited copy deleted; canonical content lives at $ruleTarget)"
+                }
+            } else {
+                $summary += "  DRIFT     $claudeMd (superseded cross-project memory section differs from the last shipped version -- an older bootstrap or hand edits; review the diff, then re-run with -Force to remove it. Canonical content now lives at $ruleTarget)"
+                Show-Diff 'superseded CLAUDE.md section' $liveSection.Section $legacySection
+                $driftReported = $true
             }
-            # Trim leading blanks from after-block (we'll add one separator)
-            while ($afterLines.Count -gt 0 -and $afterLines[0] -eq '') {
-                if ($afterLines.Count -eq 1) { $afterLines = @() } else { $afterLines = $afterLines[1..($afterLines.Count - 1)] }
-            }
-            $newLines = @()
-            if ($beforeLines.Count -gt 0) { $newLines += $beforeLines + @('') }
-            $newLines += $snippetLines
-            if ($afterLines.Count -gt 0) { $newLines += @('') + $afterLines }
-            Write-File $claudeMd $newLines
         }
-        $summary += "  synced    $claudeMd (section replaced)"
-    } else {
-        $summary += "  DRIFT     $claudeMd (section differs from snippet; re-run with -Force to sync)"
-        Show-Diff 'CLAUDE.md cross-project section' $liveSection.Section $canonSection
-        $driftReported = $true
     }
 }
 
@@ -811,6 +890,6 @@ if ($driftReported) {
     Write-Host ''
 }
 Write-Host 'Next steps:'
-Write-Host '  - Open ~/.claude/CLAUDE.md and confirm the section reads well.'
+Write-Host '  - Open ~/.claude/rules/cross-project-memory.md and confirm it reads well.'
 Write-Host '  - Optionally seed ~/.claude/memory/user_identity.md (see BOOTSTRAP.md).'
 Write-Host '  - Save memories as you work; the system fills itself.'

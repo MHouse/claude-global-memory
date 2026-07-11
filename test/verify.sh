@@ -3,8 +3,10 @@
 #
 # Runs the BOOTSTRAP.md recipe against a throwaway HOME and asserts: the
 # managed-surface idempotency + drift-detection + --force resync contract, the
-# memory-loader contract (default-on install, surgical settings.json merge,
-# agent-type filter, sticky uninstall), and the full opt-in per-skill matrix
+# cross-project rule surface (default-on whole-file + deletion opt-out) and
+# the one-time CLAUDE.md section migration, the memory-loader contract
+# (default-on install, surgical settings.json merge, agent-type filter,
+# sticky uninstall), and the full opt-in per-skill matrix
 # (closeout + memory-sweep). This is the repo's manual test convention
 # (no CI, no app) made runnable. Run it by hand before landing a bootstrap
 # change:  bash test/verify.sh
@@ -44,7 +46,9 @@ fresh_home
 out="$(run)"
 file   "fresh: memory dir created"     "$TH/.claude/memory"
 file   "fresh: MEMORY.md created"      "$TH/.claude/memory/MEMORY.md"
-file   "fresh: CLAUDE.md created"      "$TH/.claude/CLAUDE.md"
+nofile "fresh: CLAUDE.md not created"  "$TH/.claude/CLAUDE.md"
+file   "fresh: rule installed"         "$TH/.claude/rules/cross-project-memory.md"
+file   "fresh: rule stamp present"     "$TH/.claude/rules/.cross-project-memory.delivered"
 file   "fresh: REGISTRY.md created"    "$TH/.claude/hooks/REGISTRY.md"
 has    "fresh: closeout skipped (opt-in)" "$out" "skip      closeout skill (not installed"
 has    "fresh: memory-sweep skipped (opt-in)" "$out" "skip      memory-sweep skill (not installed"
@@ -63,6 +67,77 @@ has    "drift: MEMORY.md preamble drift reported" "$out" "DRIFT     $TH/.claude/
 out="$(run --force)"
 has    "force: MEMORY.md synced" "$out" "synced    $TH/.claude/memory/MEMORY.md"
 if grep -qF "[my entry](x.md)" "$TH/.claude/memory/MEMORY.md"; then ok "force: user entry below ## Entries preserved"; else no "force: user entry was clobbered"; fi
+
+# ---- cross-project rule (default-on whole-file surface) -----------------------
+# Mirrors the rule block in verify.ps1 -- keep the two in sync.
+
+echo "== rule: stale / edited / opt-out / reinstall =="
+fresh_home
+run >/dev/null
+rtarget="$TH/.claude/rules/cross-project-memory.md"
+rstamp="$TH/.claude/rules/.cross-project-memory.delivered"
+out="$(run)"
+has    "rule: bare run in sync" "$out" "cross-project-memory.md (in sync)"
+printf 'old rule version\n' > "$rtarget"
+nhash "$rtarget" > "$rstamp"
+out="$(run)"
+has    "rule: pristine-stale auto-updated on bare run" "$out" "updated to current version"
+if diff -q <(normalize_t "$repo_root/rules/cross-project-memory.md") <(normalize_t "$rtarget") >/dev/null; then ok "rule: updated copy matches source"; else no "rule: updated copy != source"; fi
+printf 'HAND EDIT\n' >> "$rtarget"
+out="$(run)"
+has    "rule: edited copy -> DRIFT" "$out" "differs and looks edited"
+out="$(run --force)"
+has    "rule: --force overwrote edited copy" "$out" "overwrote modified copy"
+rm -f "$rtarget"
+out="$(run)"
+has    "rule: deleted-with-stamp respected as opt-out" "$out" "removed by you"
+nofile "rule: not reinstalled while opted out" "$rtarget"
+out="$(run --force)"
+has    "rule: --force reinstalls over the opt-out" "$out" "(reinstalled)"
+file   "rule: reinstalled" "$rtarget"
+rm -f "$rtarget" "$rstamp"
+out="$(run)"
+has    "rule: file+stamp deleted -> fresh install on bare run" "$out" "cross-project memory rule installed"
+rm -f "$rtarget"
+if ln -s "$TH/.claude/memory/MEMORY.md" "$rtarget" 2>/dev/null && [ -L "$rtarget" ]; then
+  out="$(run)"
+  has  "rule: refuses to write through a symlink" "$out" "is a symlink/junction; not managing it"
+  rm -f "$rtarget"
+else
+  # Git Bash ln -s may copy instead of link; clean up and skip.
+  rm -f "$rtarget"
+  printf '  SKIP  rule: symlink refusal (this filesystem disallows symlinks; covered by verify.ps1)\n'
+fi
+
+echo "== migration: pristine superseded CLAUDE.md section removed =="
+fresh_home
+mkdir -p "$TH/.claude"
+{ printf '# My CLAUDE.md\n\nuser prefs above\n\n'; cat "$repo_root/snippets/cross-project-memory-claude-md.md"; printf '\n## My other section\n\nuser content after\n'; } > "$TH/.claude/CLAUDE.md"
+out="$(run)"
+has    "migration: pristine section removed" "$out" "removed   cross-project memory section"
+if grep -qE '^## Cross-project memory' "$TH/.claude/CLAUDE.md"; then no "migration: section still present"; else ok "migration: section gone"; fi
+if grep -qF 'user prefs above' "$TH/.claude/CLAUDE.md" && grep -qF 'user content after' "$TH/.claude/CLAUDE.md" && grep -qF '## My other section' "$TH/.claude/CLAUDE.md"; then ok "migration: user content around the section preserved"; else no "migration: user content damaged"; fi
+out="$(run)"
+hasnt  "migration: permanent no-op afterwards" "$out" "removed   cross-project memory section"
+hasnt  "migration: no drift afterwards" "$out" "DRIFT"
+
+echo "== migration: edited section needs --force; unmarked never touched =="
+fresh_home
+mkdir -p "$TH/.claude"
+{ cat "$repo_root/snippets/cross-project-memory-claude-md.md"; printf 'MY EDIT INSIDE THE SECTION\n'; } > "$TH/.claude/CLAUDE.md"
+out="$(run)"
+has    "migration: edited section -> DRIFT" "$out" "differs from the last shipped version"
+if grep -qF 'MY EDIT INSIDE THE SECTION' "$TH/.claude/CLAUDE.md"; then ok "migration: edited section left in place"; else no "migration: edited section removed without --force"; fi
+out="$(run --force)"
+has    "migration: --force removes the edited section" "$out" "edited copy deleted"
+if grep -qE '^## Cross-project memory' "$TH/.claude/CLAUDE.md"; then no "migration: edited section still present after --force"; else ok "migration: edited section gone after --force"; fi
+fresh_home
+mkdir -p "$TH/.claude"
+printf '## Cross-project memory\n\nmy own homegrown notes\n' > "$TH/.claude/CLAUDE.md"
+out="$(run)"
+has    "migration: unmarked section -> WARN" "$out" "without the bootstrap ownership marker"
+run --force >/dev/null
+if grep -qF 'my own homegrown notes' "$TH/.claude/CLAUDE.md"; then ok "migration: unmarked section survives even --force"; else no "migration: unmarked section was removed"; fi
 
 # ---- memory-loader (default-on) ----------------------------------------------
 # Mirrors the loader block in verify.ps1 -- keep the two in sync. JSON asserts
