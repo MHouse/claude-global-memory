@@ -110,9 +110,10 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   detection, since there's no app to run. The bundled harness automates
   exactly that — run **both** `bash test/verify.sh` and
   `pwsh -NoProfile -File test/verify.ps1` before landing a bootstrap change
-  (CI also runs both on every PR; they cover the managed surfaces, the
-  memory-loader contract, + the per-skill matrix and are kept in lockstep,
-  same as the two bootstrap scripts).
+  (CI also runs both on every PR and gates merges via the required
+  `ci-success` check; they cover the managed surfaces, the memory-loader
+  contract, + the per-skill matrix and are kept in lockstep, same as the
+  two bootstrap scripts).
 
 ## Deploy Configuration
 
