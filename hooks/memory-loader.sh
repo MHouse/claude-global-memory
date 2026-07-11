@@ -81,14 +81,63 @@ index="${home_dir}/.claude/memory/MEMORY.md"
 entries=$(awk '/^## Entries[[:space:]]*$/ { found=1; next } found { sub(/\r$/, ""); print }' "$index")
 [ -n "$(printf '%s' "$entries" | tr -d '[:space:]')" ] || exit 0
 
+# --- the fold ---------------------------------------------------------------
+# An optional standalone '<!-- fold -->' line inside ## Entries splits the
+# index into an ambient above-fold segment and an on-demand tail (see
+# BOOTSTRAP.md, "The memory-loader hook"). Strict grammar: the whole line,
+# surrounding whitespace allowed, CR already stripped by the extraction --
+# marker text inside an entry line is data, not a marker. The first marker
+# wins; extras are reported on stderr. A marker with an empty tail withholds
+# nothing. No marker = the pre-fold behavior, byte for byte.
+fold_re='^[[:space:]]*<!-- fold -->[[:space:]]*$'
+fold_line=$(printf '%s\n' "$entries" | grep -nE "$fold_re" | head -n 1 | cut -d: -f1)
+above=""; below=""
+if [ -n "$fold_line" ]; then
+    fold_count=$(printf '%s\n' "$entries" | grep -cE "$fold_re")
+    [ "$fold_count" -gt 1 ] && printf 'memory-loader: %s fold markers found; using the first\n' "$fold_count" >&2
+    above=$(printf '%s\n' "$entries" | awk -v m="$fold_line" 'NR < m')
+    below=$(printf '%s\n' "$entries" | awk -v m="$fold_line" 'NR > m')
+    [ -n "$(printf '%s' "$below" | tr -d '[:space:]')" ] || fold_line=""
+fi
+
+# Mode selection: with a marker, subagents always get the ambient segment
+# only -- they multiply injection cost under fan-out and inherit the global
+# CLAUDE.md retrieval fallback. Main sessions keep the full index (byte-budget
+# auto-degrade is fold stage 2).
+mode=full
+[ -n "$fold_line" ] && [ "$event" = "SubagentStart" ] && mode=fold
+
+if [ "$mode" = "fold" ]; then
+    inject="$above"
+    if [ -n "$(printf '%s' "$above" | tr -d '[:space:]')" ]; then
+        entry_lines=$(printf '%s\n' "$above" | wc -l | tr -d '[:space:]')
+        entry_bytes=$(printf '%s' "$above" | wc -c | tr -d '[:space:]')
+    else
+        entry_lines=0; entry_bytes=0
+        printf 'memory-loader: above-fold segment is empty; subagents get only the pointer\n' >&2
+    fi
+    below_lines=$(printf '%s\n' "$below" | wc -l | tr -d '[:space:]')
+else
+    # Strip marker lines from a full injection -- they are structure, not
+    # content. Without a marker this is the identity transform.
+    inject=$(printf '%s\n' "$entries" | grep -vE "$fold_re")
+    entry_lines=$(printf '%s\n' "$inject" | wc -l | tr -d '[:space:]')
+    entry_bytes=$(printf '%s' "$inject" | wc -c | tr -d '[:space:]')
+fi
+
 payload="Cross-project memory index -- injected from ~/.claude/memory/MEMORY.md (see the Cross-project memory section of the global CLAUDE.md). One line per entry; read the linked entry file under ~/.claude/memory/ before acting on one.
 
-$entries"
+$inject"
 
-entry_lines=$(printf '%s\n' "$entries" | wc -l | tr -d '[:space:]')
-entry_bytes=$(printf '%s' "$entries" | wc -c | tr -d '[:space:]')
+# Budget warnings, named for the segment they measure -- a fold changes which
+# bytes are always-resident, and a warning must say which segment blew which
+# budget or the user fixes the wrong one.
 warning=""
-if [ "$entry_bytes" -gt "$max_entry_bytes" ]; then
+if [ "$mode" = "fold" ]; then
+    if [ "$entry_bytes" -gt "$max_entry_bytes" ]; then
+        warning="WARNING: the ABOVE-FOLD segment alone is ${entry_bytes} bytes -- past the ~${max_entry_bytes}-byte injection budget, so the fold is not doing its job; move entries below the fold or trim them (see memory-sweep)."
+    fi
+elif [ "$entry_bytes" -gt "$max_entry_bytes" ]; then
     warning="WARNING: the cross-project index is ${entry_bytes} bytes; the harness keeps only a ~2KB preview of injections past ~10k characters, so entries below the fold lose the always-in-context guarantee -- trim or promote (see memory-sweep) and keep imperative lines at the top."
 elif [ "$entry_lines" -gt "$max_entry_lines" ]; then
     warning="WARNING: the cross-project index is ${entry_lines} lines (cap ~${max_entry_lines}); routing quality decays past that -- prune or promote entries (see memory-sweep)."
@@ -103,10 +152,18 @@ fi
 # Terminal sentinel: the harness truncates oversized injections silently and
 # its threshold is undocumented and version-dependent, so DETECT rather than
 # predict -- the CLAUDE.md snippet treats a payload whose final INDEX-END line
-# is missing as truncated and falls back to reading the file.
-payload="${payload}
+# is missing as truncated and falls back to reading the file. The prefix
+# 'INDEX-END (N lines, N bytes' is a stable contract for deployed consumers;
+# fold mode appends the withheld-tail pointer after it.
+if [ "$mode" = "fold" ]; then
+    payload="${payload}
+
+INDEX-END (${entry_lines} lines, ${entry_bytes} bytes; ${below_lines} lines below the fold -- read ~/.claude/memory/MEMORY.md)"
+else
+    payload="${payload}
 
 INDEX-END (${entry_lines} lines, ${entry_bytes} bytes)"
+fi
 
 # Emit exactly one JSON object; escape backslash, quote, tab; join with \n.
 # The failure mode of hand-rolled JSON is silent (HOOKS.md lesson) -- the

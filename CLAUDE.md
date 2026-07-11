@@ -91,6 +91,9 @@ bootstrap scripts, docs) — **never anyone's actual memories**.
   (the harness truncates bigger injections to a ~2KB preview). Lead a
   line with the imperative rule itself only for the frequent-and-costly
   gotchas, and keep those lines at the top — the preview keeps the head.
+  An optional standalone `<!-- fold -->` line in `## Entries` (user
+  territory — bootstrap never touches it) splits ambient from on-demand:
+  subagents are injected with only what sits above it.
 - Four memory types only: `user`, `feedback`, `project`, `reference`.
   Don't invent new ones in shipped examples.
 - Prose voice in docs is terse and opinionated; match it. Don't add

@@ -175,6 +175,59 @@ Hasnt "conf: bare re-run stays in sync with conf present" $out "DRIFT"
 if ((Get-Content $confPath -Raw) -eq $confBefore) { Ok "conf: bare run leaves conf untouched" } else { No "conf: bare run modified conf" }
 Remove-Item -LiteralPath $confPath -Force
 
+Write-Host "== loader: fold -- subagents get above-fold only; strict marker grammar =="
+Fresh-Home
+Run | Out-Null
+$mem = Join-Path $script:TH '.claude\memory\MEMORY.md'
+if ($null -eq $gitBash) {
+    Write-Host "  SKIP  loader: fold asserts (no Git Bash found)"
+} else {
+    Add-Content -Path $mem -Value (@('- [above entry](a.md) -- ambient', '<!-- fold -->', '- [below entry](b.md) -- tail', '- [below two](c.md) -- tail2') -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: subagent gets above-fold" $o "above entry"
+    Hasnt "fold: subagent does not get below-fold" $o "below entry"
+    Has   "fold: segment sentinel carries the pointer" $o "lines below the fold -- read ~/.claude/memory/MEMORY.md"
+    $parsed = $null
+    try { $parsed = $o | ConvertFrom-Json } catch {}
+    if ($parsed -and @($parsed.hookSpecificOutput.additionalContext -split "`n")[-1].StartsWith('INDEX-END (')) {
+        Ok "fold: segment sentinel keeps the stable prefix (valid JSON)"
+    } else { No "fold: segment sentinel broke the INDEX-END prefix contract" }
+    $o = Invoke-LoaderHook '{"hook_event_name":"SessionStart","source":"startup"}'
+    Has   "fold: main session still gets the full index" $o "below two"
+    Hasnt "fold: literal marker stripped from full payload" $o "fold -->"
+    Hasnt "fold: main sentinel not segment-aware" $o "below the fold"
+    $o = Invoke-LoaderHook '{"agent_type":"Explore","hook_event_name":"SubagentStart"}'
+    if ($o -eq '') { Ok "fold: skip list still wins before fold work" } else { No "fold: Explore not skipped with marker present" }
+    $out = Run
+    Hasnt "fold: bare re-run reports no DRIFT with marker present" $out "DRIFT"
+    Run -Force | Out-Null
+    $memRaw = Get-Content $mem -Raw
+    if ((@(Get-Content $mem | Where-Object { $_ -eq '<!-- fold -->' }).Count -eq 1) -and $memRaw.Contains('below two')) {
+        Ok "fold: marker + tail survive bare and -Force runs"
+    } else { No "fold: bootstrap disturbed the marker or tail" }
+    Set-Content -Path $mem -Value (@('# H', '', '## Entries', '', '- [inline entry](y.md) -- mentions <!-- fold --> inline', '- [tail entry](t.md) -- t') -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: embedded marker text is data (tail still injected)" $o "tail entry"
+    Hasnt "fold: no phantom segment sentinel" $o "below the fold"
+    Set-Content -Path $mem -Value (@('# H', '', '## Entries', '', '- [a one](a.md) -- a', '   <!-- fold -->   ', '- [m one](m.md) -- mid', '<!-- fold -->', '- [t one](t.md) -- tail') -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: whitespace-padded marker honored" $o "a one"
+    Hasnt "fold: first marker wins (mid withheld)" $o "m one"
+    Has   "fold: withheld count spans to the tail" $o "3 lines below the fold"
+    Set-Content -Path $mem -Value (@('# H', '', '## Entries', '<!-- fold -->', '- [t only](t.md) -- t') -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: empty above-fold still emits pointer sentinel" $o "INDEX-END (0 lines, 0 bytes;"
+    Set-Content -Path $mem -Value (@('# H', '', '## Entries', '', '- [only entry](o.md) -- o', '<!-- fold -->') -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: empty tail withholds nothing" $o "only entry"
+    Hasnt "fold: empty tail -> plain sentinel" $o "below the fold"
+    $fatTailF = 'y' * 380
+    $fatF = @('# H', '', '## Entries', '') + (1..25 | ForEach-Object { "- [af$_](x.md) -- $fatTailF" }) + @('<!-- fold -->', '- [tail z](z.md) -- z')
+    Set-Content -Path $mem -Value ($fatF -join "`n")
+    $o = Invoke-LoaderHook '{"agent_type":"general-purpose","hook_event_name":"SubagentStart"}'
+    Has   "fold: oversized above-fold warns by segment name" $o "ABOVE-FOLD segment alone"
+}
+
 Write-Host "== loader: empty index injects nothing; oversized index warns =="
 Fresh-Home
 Run | Out-Null
@@ -290,6 +343,9 @@ $hookSrc = Get-Content (Join-Path $repoRoot 'hooks\memory-loader.sh') -Raw
 if ($hookSrc -match "(?m)^max_entry_bytes=9000$") { Ok "constants: hook byte bound is 9000" } else { No "constants: hook byte bound changed -- update docs + these checks" }
 if ($hookSrc -match "(?m)^max_entry_lines=200$") { Ok "constants: hook line bound is 200" } else { No "constants: hook line bound changed -- update docs + these checks" }
 if ($hookSrc -match '(?m)^skip_agent_types="Explore Plan"$') { Ok "constants: hook default skip list is Explore Plan" } else { No "constants: hook default skip list changed -- update BOOTSTRAP.md/HOOKS.md + this needle" }
+foreach ($doc in @('hooks\memory-loader.sh', 'BOOTSTRAP.md', 'MEMORY.md.template')) {
+    if ((Get-Content (Join-Path $repoRoot $doc) -Raw).Contains('<!-- fold -->')) { Ok "constants: $doc states the fold marker" } else { No "constants: $doc missing the '<!-- fold -->' marker literal" }
+}
 foreach ($doc in @('BOOTSTRAP.md', 'README.md', 'MEMORY.md.template', 'CLAUDE.md', 'skills\memory-sweep\SKILL.md', 'skills\closeout\SKILL.md')) {
     if ((Get-Content (Join-Path $repoRoot $doc) -Raw) -match '~9(KB|,000)') { Ok "constants: $doc states the ~9KB bound" } else { No "constants: $doc missing the ~9KB bound" }
 }
