@@ -46,6 +46,7 @@ awk '/^## Entries[[:space:]]*$/{f=1;next} f' ~/.claude/memory/MEMORY.md | wc -c
 
 - **Past ~9,000 bytes** (the loader warns at the same bound): propose trims — tighten verbose index lines back to routers (the linked entry body holds the detail), merge near-duplicate entries, demote low-value ones. Target comfortably under the bound, not just barely.
 - **Ordering:** the preview keeps the head, so promoted **imperative** lines (see the index's "Index-line salience") belong at the top of `## Entries`. If any imperative line sits below the first ~2KB, propose moving it up.
+- **Graduation to a skill — the exception, never the default.** Two shapes earn it, and only these: an entry that is **runbook-shaped** (a multi-step procedure invoked by intent — "apply the branch-protection standard" — not knowledge needed ambiently), or a **real cluster** — **≥3 related entries** collapsing into one skill, where one description line genuinely replaces several index lines. If you can't name the third entry, it's not a cluster. Everything else that's merely task-retrievable stays in the store and gets demotion, because every skill costs an always-resident description line and probabilistic triggering — one-entry-one-skill just moves the index's bytes to a worse neighborhood. Propose a graduation with the draft skill name + description and the entries/index lines it would retire.
 
 Record proposals to the confirm batch (Step 5) — like promotions, never auto-applied.
 
@@ -74,6 +75,7 @@ Present one batch, grouped:
 - **Injection-budget trims/reorder** — proposed line tightenings and imperative-lines-first moves from Step 2b, with the measured byte count.
 - **Promotions** — each drafted general entry, its destination + index line + one-line "why it crossed over," and the source entries it merges/retires.
 - **Demotions** — source + proposed destination.
+- **Graduations** (rare — Step 2b's bar) — the drafted skill name + description, the entries it absorbs, and the index lines it retires. For a confirmed one: draft the SKILL.md, confirm its home with the user first (skill setups vary — plain `~/.claude/skills/` vs a managed skills repo), then retire the absorbed entries and their index lines.
 - **Store versioning** (only when `~/.claude/memory` is **not** a git repo) — one optional proposal to initialize local history, so sweeps and closeouts can checkpoint the store from then on: `git -C ~/.claude/memory init -b main`, a `.gitignore` with `*.bak`, a `.gitattributes` with `* -text` (git must never rewrite store bytes — the injection budget is byte-measured), then an initial snapshot commit. Local history only: **never add a remote, never push** — the store stays machine-local. Omit the item entirely when the store is already a repo.
 - **Recommendations** — other-project stores worth consolidating in-project.
 - **Deferred** — worktree-session stores left untouched.
@@ -90,5 +92,6 @@ Report: stores inventoried; what the delegated `consolidate-memory` pass changed
 
 - **Delegate, don't reimplement.** The per-directory deep clean is `consolidate-memory`'s; this skill inherits it and owns only cross-store inventory + promotion.
 - **Promotion rewrites, never copies — and is always reviewed.** Never auto-apply one.
+- **Demotion is the default budget relief; graduation is the exception.** A skill is earned by the runbook-or-cluster test (Step 2b), never by byte pressure alone — one-entry-one-skill is explicitly rejected.
 - **Never mutate another session's worktree memory**, and never deep-clean another project's store remotely — recommend running the in-project tools instead.
 - **This is the periodic cross-store sweep, not session closeout** (`closeout`) and not a single-directory pass (`consolidate-memory`).
